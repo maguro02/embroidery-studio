@@ -1,5 +1,7 @@
 "use client";
 
+import dynamic from "next/dynamic";
+import { useEffect, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Tabs,
@@ -7,26 +9,63 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 import { Loader2 } from "lucide-react";
+import type { StitchPattern } from "@/lib/pipeline/types";
+import type { PipelineProgress } from "@/lib/pipeline";
+
+const StitchPreview3D = dynamic(
+  () => import("./stitch-preview-3d").then((m) => m.StitchPreview3D),
+  { ssr: false, loading: () => <Loader2 className="size-6 animate-spin" /> },
+);
 
 type Props = {
   imageSrc: string | null;
   isProcessing: boolean;
+  pattern: StitchPattern | null;
+  progress: PipelineProgress | null;
 };
 
-export function StitchPreview({ imageSrc, isProcessing }: Props) {
+const STAGE_LABEL: Record<PipelineProgress["stage"], string> = {
+  "loading-cv": "OpenCV.js を読み込み中",
+  "loading-py": "Pyodide を読み込み中",
+  quantize: "減色処理中",
+  vectorize: "ベクター化中",
+  stitch: "ステッチ生成中",
+  write: "刺繍ファイル書き出し中",
+};
+
+export function StitchPreview({
+  imageSrc,
+  isProcessing,
+  pattern,
+  progress,
+}: Props) {
   return (
     <Card className="h-full">
       <CardHeader>
         <CardTitle className="text-base">プレビュー</CardTitle>
       </CardHeader>
-      <CardContent>
-        <Tabs defaultValue="stitch">
+      <CardContent className="space-y-3">
+        {isProcessing && progress && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{STAGE_LABEL[progress.stage]}</span>
+              <span className="tabular-nums">{progress.percent}%</span>
+            </div>
+            <Progress value={progress.percent} />
+          </div>
+        )}
+
+        <Tabs defaultValue={pattern ? "stitch" : "source"}>
           <TabsList>
             <TabsTrigger value="source">元画像</TabsTrigger>
-            <TabsTrigger value="vector">ベクター</TabsTrigger>
-            <TabsTrigger value="stitch">ステッチ</TabsTrigger>
-            <TabsTrigger value="3d">3D</TabsTrigger>
+            <TabsTrigger value="stitch" disabled={!pattern}>
+              ステッチ
+            </TabsTrigger>
+            <TabsTrigger value="3d" disabled={!pattern}>
+              3D
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="source">
@@ -44,28 +83,23 @@ export function StitchPreview({ imageSrc, isProcessing }: Props) {
             </PreviewSurface>
           </TabsContent>
 
-          <TabsContent value="vector">
-            <PreviewSurface>
-              <EmptyState text="ベクター化結果はここに表示されます (potrace-wasm)" />
-            </PreviewSurface>
-          </TabsContent>
-
           <TabsContent value="stitch">
             <PreviewSurface>
-              {isProcessing ? (
-                <div className="flex flex-col items-center gap-3 text-muted-foreground">
-                  <Loader2 className="size-6 animate-spin" />
-                  <span className="text-sm">ステッチ生成中...</span>
-                </div>
+              {pattern ? (
+                <StitchCanvas pattern={pattern} />
               ) : (
-                <EmptyState text="ステッチパスはここに描画されます (Canvas)" />
+                <EmptyState text="ステッチパスはここに描画されます" />
               )}
             </PreviewSurface>
           </TabsContent>
 
           <TabsContent value="3d">
             <PreviewSurface>
-              <EmptyState text="three.js による糸シミュレーション (将来対応)" />
+              {pattern ? (
+                <StitchPreview3D pattern={pattern} />
+              ) : (
+                <EmptyState text="three.js による糸シミュレーション" />
+              )}
             </PreviewSurface>
           </TabsContent>
         </Tabs>
@@ -74,9 +108,66 @@ export function StitchPreview({ imageSrc, isProcessing }: Props) {
   );
 }
 
+function StitchCanvas({ pattern }: { pattern: StitchPattern }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const scale = useMemo(
+    () => Math.min(480 / pattern.widthMm, 480 / pattern.heightMm),
+    [pattern.widthMm, pattern.heightMm],
+  );
+  const w = Math.max(1, Math.round(pattern.widthMm * scale));
+  const h = Math.max(1, Math.round(pattern.heightMm * scale));
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = `${w}px`;
+    canvas.style.height = `${h}px`;
+    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
+    ctx.clearRect(0, 0, pattern.widthMm, pattern.heightMm);
+
+    ctx.fillStyle = "#faf8f3";
+    ctx.fillRect(0, 0, pattern.widthMm, pattern.heightMm);
+
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    for (const block of pattern.blocks) {
+      const color = rgbToCss(block.rgb);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 0.3;
+
+      let prev: { x: number; y: number } | null = null;
+      for (const s of block.stitches) {
+        if (s.kind === "jump" || s.kind === "trim" || s.kind === "stop") {
+          prev = null;
+          continue;
+        }
+        if (prev) {
+          ctx.beginPath();
+          ctx.moveTo(prev.x, prev.y);
+          ctx.lineTo(s.x, s.y);
+          ctx.stroke();
+        }
+        prev = { x: s.x, y: s.y };
+      }
+    }
+  }, [pattern, w, h, scale]);
+
+  return <canvas ref={ref} className="bg-white shadow-sm" />;
+}
+
+function rgbToCss(rgb: [number, number, number]): string {
+  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+}
+
 function PreviewSurface({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mt-4 flex h-[480px] items-center justify-center rounded-md border bg-muted/30">
+    <div className="mt-4 flex h-[480px] items-center justify-center overflow-auto rounded-md border bg-muted/30">
       {children}
     </div>
   );

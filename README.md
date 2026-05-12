@@ -57,13 +57,19 @@ src/
 │   ├── embroidery-studio.tsx
 │   ├── image-uploader.tsx
 │   ├── conversion-settings.tsx
-│   ├── stitch-preview.tsx
+│   ├── stitch-preview.tsx       Canvas2D + 3Dタブ
+│   ├── stitch-preview-3d.tsx    three.js 糸シミュレーション
 │   └── result-panel.tsx
 ├── lib/
 │   ├── pipeline/
-│   │   ├── index.ts        パイプラインのエントリ
+│   │   ├── index.ts            convertImageToEmbroideryDirect
 │   │   ├── pyodide-loader.ts
 │   │   ├── opencv-loader.ts
+│   │   ├── quantize.ts         OpenCV.js k-means
+│   │   ├── vectorize.ts        esm-potrace-wasm + SVGパーサ
+│   │   ├── stitch.ts           Run/Satin/Fill 自動判定
+│   │   ├── writer.ts           Pyodide + pyembroidery
+│   │   ├── units.ts
 │   │   └── types.ts
 │   └── utils.ts
 docs/
@@ -72,7 +78,15 @@ docs/
 
 ## ライセンス上の注意
 
-- Ink/Stitch (GPLv3) のコード取り込みは行わない（取り込むと本アプリも GPL になるため）。pyembroidery (MIT) のみ使用。
+- **`esm-potrace-wasm` は GPL-2.0** (Potrace 由来)。npm 依存として動的に呼び出すのみとし、ソースコードの改変・取り込みは行わない。SVGcode で採用されているのと同じ運用。
+- Ink/Stitch (GPLv3) のコード取り込みも行わない。pyembroidery (MIT) のみコード参照可。
+- 配布時は README / NOTICE に GPL 依存である旨を明記する。
+
+## 既知の制約 / 未対応
+
+- **Web Worker 化は未実装**: `esm-potrace-wasm` (ESM 専用) と Pyodide/OpenCV.js (classic script) の混在で Worker 統合に追加検討が必要。当面はメインスレッドで実行するため、生成中はブラウザ操作が一時的に重くなる。
+- DMC 等の糸色パレット近似は未対応 (任意 RGB のまま `add_thread`)
+- pull compensation / underlay は未対応
 
 ## スコープ
 

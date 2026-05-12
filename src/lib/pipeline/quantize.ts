@@ -64,7 +64,6 @@ export async function quantize(
 
   const src = c.matFromImageData(imageData);
   const rgb = new c.Mat();
-  const samplesU8 = new c.Mat();
   const samples = new c.Mat();
   const labels = new c.Mat();
   const centers = new c.Mat();
@@ -76,7 +75,6 @@ export async function quantize(
     } finally {
       reshaped.delete();
     }
-    void samplesU8;
 
     const criteria = new c.TermCriteria(
       c.TermCriteria_EPS + c.TermCriteria_MAX_ITER,
@@ -84,12 +82,13 @@ export async function quantize(
       epsilon,
     );
 
+    // attempts=1: メモリ消費を抑える (3 → 1 で品質はわずかに劣化するがブラウザ向けに必要)
     c.kmeans(
       samples,
       colorCount,
       labels,
       criteria,
-      3,
+      1,
       c.KMEANS_PP_CENTERS,
       centers,
     );
@@ -123,7 +122,6 @@ export async function quantize(
     src.delete();
     rgb.delete();
     samples.delete();
-    samplesU8.delete();
     labels.delete();
     centers.delete();
   }

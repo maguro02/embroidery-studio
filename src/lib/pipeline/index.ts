@@ -26,7 +26,8 @@ export type PipelineResult = {
   fileBlob: Blob;
 };
 
-const MAX_DIMENSION = 1024;
+/** OpenCV.js のメモリ消費を抑えるため、k-means の入力解像度を絞る */
+const MAX_DIMENSION = 384;
 
 /**
  * Worker を経由せずに各ステージを直接実行する版。

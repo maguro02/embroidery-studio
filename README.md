@@ -1,75 +1,80 @@
 # embroidery-studio
 
-画像から刺繍ミシン用データ（DST/PES など）を自動生成し、ブラウザ上でステッチをプレビューするWebアプリ。
+画像から刺繍ミシン用データ (DST / PES / JEF / EXP / VP3) を生成し、ブラウザ上でステッチをプレビューする **完全クライアントサイド** のWebアプリ。サーバーへの画像送信は一切なし。
 
-## 概要
+## 特徴
 
-| 機能 | 内容 |
-|---|---|
-| 入力 | PNG / JPEG / SVG（ロゴ・線画・アイコン向け） |
-| 出力 | DST（タジマ） / PES（ブラザー） / JEF（ジャノメ） / SVG |
-| プレビュー | ブラウザ上でステッチパス、色順、ジャンプステッチ、総ステッチ数を可視化 |
-
-## アーキテクチャ
-
-```
-embroidery-studio/
-├── frontend/   Next.js + TypeScript + Canvas/WebGL でプレビュー描画
-├── backend/    FastAPI + pyembroidery + OpenCV/Pillow + potrace
-└── docs/       設計メモ・パイプライン仕様
-```
-
-### 処理パイプライン
-
-```
-画像入力
-  → 減色・量子化（糸色数へ近似）
-  → 領域分割・輪郭抽出（OpenCV）
-  → ベクター化（potrace）
-  → ステッチタイプ割当（Satin / Fill / Run）
-  → ステッチパス生成（密度・進入退出点・引き締まり補正）
-  → pyembroidery で DST/PES 出力
-```
+- 100% client-side — Next.js `output: "export"` の静的ホスティングで動作（CDN配信可）
+- WASM ベースの画像処理パイプライン
+- shadcn/ui + Tailwind v4 によるUI
 
 ## 技術スタック
 
-### Frontend
-- Next.js (App Router) / TypeScript
-- Canvas または WebGL でステッチ描画
-- ファイルアップロード、結果ダウンロード
+| 層 | 採用 |
+|---|---|
+| Frontend | Next.js 16 (App Router) / React 19 / TypeScript |
+| Style | Tailwind CSS v4 / shadcn/ui |
+| 画像処理 | OpenCV.js (WASM, CDN) |
+| ベクター化 | [esm-potrace-wasm](https://github.com/tomayac/esm-potrace-wasm) |
+| ステッチ生成 | 自前 TypeScript 実装（Run / Satin / Fill） |
+| 刺繍ファイル出力 | Pyodide + [pyembroidery](https://github.com/EmbroidePy/pyembroidery) |
+| プレビュー | Canvas 2D / three.js（3D） |
 
-### Backend
-- Python 3.11+ / FastAPI
-- [pyembroidery](https://github.com/EmbroidePy/pyembroidery) — 刺繍ファイル I/O
-- OpenCV / Pillow / scikit-image — 画像処理
-- pypotrace — ベクター化
+### なぜブラウザだけで完結できるか
+- **pyembroidery は pure Python** で C 拡張・依存なし → Pyodide 上でそのまま動作
+- **OpenCV.js** が WASM で配布されており、量子化・輪郭抽出が可能
+- **esm-potrace-wasm** がブラウザ向けの potrace を提供
+
+## 処理パイプライン
+
+```
+画像入力
+  → 減色 (k-means, OpenCV.js)
+  → 領域分割・輪郭抽出 (OpenCV.js)
+  → ベクター化 (esm-potrace-wasm)
+  → ステッチタイプ割当 (TS: Satin / Fill / Run)
+  → ステッチパス生成 (TS)
+  → DST/PES 等出力 (Pyodide + pyembroidery)
+```
+
+詳細は [`docs/pipeline.md`](./docs/pipeline.md) を参照。
 
 ## セットアップ
 
-### Backend
-
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-```
-
-### Frontend
-
-```bash
-cd frontend
 npm install
-npm run dev
+npm run dev          # http://localhost:3000
+npm run build        # ./out に静的ファイルを書き出し
 ```
 
-## 現実的なスコープ
+## ディレクトリ構成
 
-- ロゴ・モノクロ線画・アイコンなどシンプル画像に特化（MVP）
-- 写真からの自動デジタイズは品質担保が難しく、対象外
-- Ink/Stitch（GPLv3）のコード取り込みはライセンス影響に注意。APIで呼び出すのみとする
+```
+src/
+├── app/                    Next.js App Router
+├── components/
+│   ├── ui/                 shadcn/ui コンポーネント
+│   ├── embroidery-studio.tsx
+│   ├── image-uploader.tsx
+│   ├── conversion-settings.tsx
+│   ├── stitch-preview.tsx
+│   └── result-panel.tsx
+├── lib/
+│   ├── pipeline/
+│   │   ├── index.ts        パイプラインのエントリ
+│   │   ├── pyodide-loader.ts
+│   │   ├── opencv-loader.ts
+│   │   └── types.ts
+│   └── utils.ts
+docs/
+└── pipeline.md             パイプライン仕様ドラフト
+```
 
-## ライセンス
+## ライセンス上の注意
 
-未定。
+- Ink/Stitch (GPLv3) のコード取り込みは行わない（取り込むと本アプリも GPL になるため）。pyembroidery (MIT) のみ使用。
+
+## スコープ
+
+- 対象: ロゴ / 線画 / アイコンなどシンプルな図形
+- 非対象: 写真からの自動デジタイズ（品質が安定しない）

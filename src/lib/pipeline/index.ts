@@ -25,8 +25,12 @@ export type PipelineResult = {
   fileBlob: Blob;
 };
 
-/** OpenCV.js のメモリ消費を抑えるため、k-means の入力解像度を絞る */
-const MAX_DIMENSION = 384;
+/**
+ * OpenCV.js / esm-potrace-wasm のメモリ消費を抑えるため入力解像度を絞る。
+ * esm-potrace-wasm は大きい画像で WASM heap が枯渇し
+ * "memory access out of bounds" になる (upstream issue #8)。
+ */
+const MAX_DIMENSION = 256;
 
 /**
  * 画像 → 刺繍データの変換パイプライン。

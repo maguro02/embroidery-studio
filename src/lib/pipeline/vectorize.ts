@@ -19,7 +19,8 @@ export type ColorRegion = {
 };
 
 export interface Tracer {
-  trace(mask: ImageData, opts: TracerOptions): Promise<string>;
+  /** マスク画像から path の d 属性文字列を 1 つ以上返す */
+  trace(mask: ImageData, opts: TracerOptions): Promise<string[]>;
 }
 
 export type TracerOptions = {
@@ -30,17 +31,29 @@ export type TracerOptions = {
 
 let potraceReady: Promise<void> | null = null;
 
+/**
+ * esm-potrace-wasm の注意点:
+ * - `pathonly: true` の戻り値は型定義 `Promise<string>` と異なり **string[]** (upstream issue #14)
+ * - 大きい入力で "RangeError: offset is out of bounds" / "memory access out of bounds" (issue #8)
+ * - 内部で imageBitmapSource.constructor.name 判定があり ImageData 名が変わると誤判定
+ *
+ * 対策として:
+ * - `pathonly: false` で SVG 全体文字列を取得し、d 属性を正規表現で抽出
+ * - 入力 ImageData は呼び出し側で十分に小さくしておく (pipeline/index.ts MAX_DIMENSION)
+ */
 const defaultTracer: Tracer = {
   async trace(mask, opts) {
     if (!potraceReady) potraceReady = potraceInit();
     await potraceReady;
-    return potrace(mask, {
+    const result = (await potrace(mask, {
       ...opts,
-      pathonly: true,
+      pathonly: false,
       extractcolors: false,
       opticurve: 1,
       turnpolicy: 4,
-    });
+    })) as string | string[];
+    if (Array.isArray(result)) return result;
+    return Array.from(result.matchAll(/d="([^"]+)"/g), (m) => m[1]);
   },
 };
 
@@ -63,8 +76,7 @@ export async function vectorize(
     const mask = buildMask(labels, width, height, colorIndex);
     if (mask === null) continue;
 
-    const svg = await tracer.trace(mask, { turdsize, alphamax, opttolerance });
-    const dList = extractPathD(svg);
+    const dList = await tracer.trace(mask, { turdsize, alphamax, opttolerance });
     const polygons: Array<Array<[number, number]>> = [];
     for (const d of dList) {
       const subs = parsePathD(d);
@@ -102,12 +114,6 @@ function buildMask(
   }
   if (count === 0) return null;
   return new ImageData(data, width, height);
-}
-
-function extractPathD(svg: string): string[] {
-  const out: string[] = [];
-  for (const m of svg.matchAll(/d="([^"]+)"/g)) out.push(m[1]);
-  return out;
 }
 
 const BEZIER_SAMPLES = 8;

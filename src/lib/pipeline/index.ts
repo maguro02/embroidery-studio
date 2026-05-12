@@ -1,8 +1,7 @@
 import type { StitchPattern } from "./types";
 import type { ConversionConfig } from "@/components/embroidery-studio";
 import { getPyodide } from "./pyodide-loader";
-import { getOpenCV } from "./opencv-loader";
-import { quantize } from "./quantize";
+import { quantize, warmupOpenCV } from "./quantize";
 import { vectorize } from "./vectorize";
 import { generateStitches } from "./stitch";
 import { writeEmbroidery } from "./writer";
@@ -30,8 +29,10 @@ export type PipelineResult = {
 const MAX_DIMENSION = 384;
 
 /**
- * Worker を経由せずに各ステージを直接実行する版。
- * 主にユニット検証・E2E デバッグ用。実プロダクトは Worker 経由を推奨。
+ * 画像 → 刺繍データの変換パイプライン。
+ * - OpenCV.js は Web Worker で動かす (メインスレッドを巻き込んだクラッシュを防ぐ)
+ * - Pyodide はメインスレッドで動かす (pyembroidery 出力)
+ * - potrace (ESM) もメインスレッドで動かす
  */
 export async function convertImageToEmbroideryDirect(
   imageBitmap: ImageBitmap,
@@ -39,7 +40,7 @@ export async function convertImageToEmbroideryDirect(
   onProgress?: (p: PipelineProgress) => void,
 ): Promise<PipelineResult> {
   onProgress?.({ stage: "loading-cv", percent: 5 });
-  const cv = await getOpenCV();
+  await warmupOpenCV();
 
   onProgress?.({ stage: "loading-py", percent: 15 });
   const py = await getPyodide();
@@ -50,7 +51,7 @@ export async function convertImageToEmbroideryDirect(
   const heightMm = widthMm * aspect;
 
   onProgress?.({ stage: "quantize", percent: 25 });
-  const quantized = await quantize(cv, {
+  const quantized = await quantize({
     imageData,
     colorCount: config.colorCount,
   });
@@ -83,7 +84,6 @@ export async function convertImageToEmbroideryDirect(
   return { pattern, fileBlob };
 }
 
-/** 巨大画像を最大辺 MAX_DIMENSION に縮小して ImageData 化 */
 function bitmapToImageData(bitmap: ImageBitmap): ImageData {
   const { width: w, height: h } = bitmap;
   const scale = Math.min(1, MAX_DIMENSION / Math.max(w, h));

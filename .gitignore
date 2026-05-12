@@ -47,3 +47,6 @@ next-env.d.ts
 *.exp
 *.vp3
 *.hus
+
+# postinstall でコピーされる OpenCV.js (npm install で生成される)
+/public/opencv.js

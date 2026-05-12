@@ -6,10 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "postinstall": "mkdir -p public && cp node_modules/@techstark/opencv-js/dist/opencv.js public/opencv.js 2>/dev/null || true"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
+    "@techstark/opencv-js": "^4.12.0-release.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "esm-potrace-wasm": "^0.4.4",

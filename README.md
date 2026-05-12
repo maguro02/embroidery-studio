@@ -84,7 +84,8 @@ docs/
 
 ## 既知の制約 / 未対応
 
-- **Web Worker 化は未実装**: `esm-potrace-wasm` (ESM 専用) と Pyodide/OpenCV.js (classic script) の混在で Worker 統合に追加検討が必要。当面はメインスレッドで実行するため、生成中はブラウザ操作が一時的に重くなる。
+- **OpenCV.js は Web Worker 隔離済み** (`public/opencv-kmeans.worker.js`)。`@techstark/opencv-js` の WASM を `postinstall` で `public/opencv.js` にコピーし、classic worker から `importScripts` で読み込む。メインスレッドから `cv` を直接触らないためページクラッシュが起きない。
+- Pyodide と potrace はメインスレッドで実行 (Worker 化は将来対応)。実行中は UI 操作が一時的に重くなる場合あり。
 - DMC 等の糸色パレット近似は未対応 (任意 RGB のまま `add_thread`)
 - pull compensation / underlay は未対応
 

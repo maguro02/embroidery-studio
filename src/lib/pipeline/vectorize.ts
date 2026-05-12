@@ -1,4 +1,15 @@
-import { init as potraceInit, potrace } from "esm-potrace-wasm";
+// imagetracerjs は型定義なしの CommonJS パッケージ
+// @ts-expect-error -- no @types provided
+import ImageTracer from "imagetracerjs";
+
+type ImageTracerLike = {
+  imagedataToSVG: (
+    imgd: ImageData,
+    options: Record<string, unknown>,
+  ) => string;
+};
+
+const tracer = ImageTracer as unknown as ImageTracerLike;
 
 export type VectorizeInput = {
   labels: Uint8Array;
@@ -29,31 +40,37 @@ export type TracerOptions = {
   opttolerance: number;
 };
 
-let potraceReady: Promise<void> | null = null;
-
 /**
- * esm-potrace-wasm の注意点:
- * - `pathonly: true` の戻り値は型定義 `Promise<string>` と異なり **string[]** (upstream issue #14)
- * - 大きい入力で "RangeError: offset is out of bounds" / "memory access out of bounds" (issue #8)
- * - 内部で imageBitmapSource.constructor.name 判定があり ImageData 名が変わると誤判定
+ * imagetracerjs (MIT, pure JS) で 2 値マスクをトレースする。
+ * esm-potrace-wasm は WASM heap 固定で大きい画像でメモリ範囲外エラーになるため不採用。
  *
- * 対策として:
- * - `pathonly: false` で SVG 全体文字列を取得し、d 属性を正規表現で抽出
- * - 入力 ImageData は呼び出し側で十分に小さくしておく (pipeline/index.ts MAX_DIMENSION)
+ * imagedataToSVG の出力は:
+ *   <path desc="..." fill="rgb(R,G,B)" stroke="..." ... d="M ... Z" />
+ * fill 色が黒寄りのパスだけマスク領域として採用する。
  */
 const defaultTracer: Tracer = {
   async trace(mask, opts) {
-    if (!potraceReady) potraceReady = potraceInit();
-    await potraceReady;
-    const result = (await potrace(mask, {
-      ...opts,
-      pathonly: false,
-      extractcolors: false,
-      opticurve: 1,
-      turnpolicy: 4,
-    })) as string | string[];
-    if (Array.isArray(result)) return result;
-    return Array.from(result.matchAll(/d="([^"]+)"/g), (m) => m[1]);
+    const svg = tracer.imagedataToSVG(mask, {
+      numberofcolors: 2,
+      colorsampling: 0,
+      pathomit: opts.turdsize,
+      ltres: 1,
+      qtres: 1,
+      strokewidth: 0,
+      linefilter: false,
+      roundcoords: 1,
+      scale: 1,
+    });
+    const dList: string[] = [];
+    const re =
+      /<path[^>]*\bfill="rgb\((\d+),(\d+),(\d+)\)"[^>]*\bd="([^"]+)"/g;
+    for (const m of svg.matchAll(re)) {
+      const r = +m[1];
+      const g = +m[2];
+      const b = +m[3];
+      if (r + g + b < 384) dList.push(m[4]);
+    }
+    return dList;
   },
 };
 

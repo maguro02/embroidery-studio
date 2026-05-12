@@ -14,7 +14,7 @@
     "@techstark/opencv-js": "^4.12.0-release.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "esm-potrace-wasm": "^0.4.4",
+    "imagetracerjs": "^1.2.6",
     "lucide-react": "^1.14.0",
     "next": "16.2.6",
     "next-themes": "^0.4.6",

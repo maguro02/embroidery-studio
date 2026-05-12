@@ -15,7 +15,7 @@
 | Frontend | Next.js 16 (App Router) / React 19 / TypeScript |
 | Style | Tailwind CSS v4 / shadcn/ui |
 | 画像処理 | OpenCV.js (WASM, CDN) |
-| ベクター化 | [esm-potrace-wasm](https://github.com/tomayac/esm-potrace-wasm) |
+| ベクター化 | [imagetracerjs](https://github.com/jankovicsandras/imagetracerjs) (MIT, 純粋JS) |
 | ステッチ生成 | 自前 TypeScript 実装（Run / Satin / Fill） |
 | 刺繍ファイル出力 | Pyodide + [pyembroidery](https://github.com/EmbroidePy/pyembroidery) |
 | プレビュー | Canvas 2D / three.js（3D） |
@@ -23,7 +23,7 @@
 ### なぜブラウザだけで完結できるか
 - **pyembroidery は pure Python** で C 拡張・依存なし → Pyodide 上でそのまま動作
 - **OpenCV.js** が WASM で配布されており、量子化・輪郭抽出が可能
-- **esm-potrace-wasm** がブラウザ向けの potrace を提供
+- **imagetracerjs** が純粋 JS で動作するベクター化を提供 (WASM のメモリ制約なし)
 
 ## 処理パイプライン
 
@@ -78,9 +78,9 @@ docs/
 
 ## ライセンス上の注意
 
-- **`esm-potrace-wasm` は GPL-2.0** (Potrace 由来)。npm 依存として動的に呼び出すのみとし、ソースコードの改変・取り込みは行わない。SVGcode で採用されているのと同じ運用。
-- Ink/Stitch (GPLv3) のコード取り込みも行わない。pyembroidery (MIT) のみコード参照可。
-- 配布時は README / NOTICE に GPL 依存である旨を明記する。
+- ベクター化に使う `imagetracerjs` は **MIT** ライセンス、`@techstark/opencv-js` は **Apache-2.0**、`pyembroidery` は **MIT**。すべて緩いライセンスで本リポを縛らない。
+- Ink/Stitch (GPLv3) のコード取り込みは行わない。
+- 当初検討した `esm-potrace-wasm` は GPL-2.0 + WASM メモリ制約があり採用断念。
 
 ## 既知の制約 / 未対応
 

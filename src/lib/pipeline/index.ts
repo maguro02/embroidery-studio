@@ -26,17 +26,16 @@ export type PipelineResult = {
 };
 
 /**
- * OpenCV.js / esm-potrace-wasm のメモリ消費を抑えるため入力解像度を絞る。
- * esm-potrace-wasm は大きい画像で WASM heap が枯渇し
- * "memory access out of bounds" になる (upstream issue #8)。
+ * OpenCV.js のメモリ消費と imagetracerjs の処理時間を抑えるため入力解像度を絞る。
+ * 必要なら段階的に上げる。
  */
-const MAX_DIMENSION = 256;
+const MAX_DIMENSION = 384;
 
 /**
  * 画像 → 刺繍データの変換パイプライン。
  * - OpenCV.js は Web Worker で動かす (メインスレッドを巻き込んだクラッシュを防ぐ)
  * - Pyodide はメインスレッドで動かす (pyembroidery 出力)
- * - potrace (ESM) もメインスレッドで動かす
+ * - imagetracerjs (pure JS) もメインスレッドで動かす
  */
 export async function convertImageToEmbroideryDirect(
   imageBitmap: ImageBitmap,

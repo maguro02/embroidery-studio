@@ -48,25 +48,24 @@ function handle(msg) {
     return;
   }
 
-  let src = null;
-  let rgb = null;
+  // @techstark/opencv-js のビルドでは Mat.reshape() / cvtColor が
+  // 一部公開されていない (cv.kmeans に渡せる 32F Mat を直接構築する)。
+  // RGBA → Float32 RGB をJSで作って matFromArray で samples を作る。
+  const rgbF32 = new Float32Array(pixelCount * 3);
+  const srcU8 = new Uint8ClampedArray(buffer);
+  for (let i = 0; i < pixelCount; i++) {
+    rgbF32[i * 3 + 0] = srcU8[i * 4 + 0];
+    rgbF32[i * 3 + 1] = srcU8[i * 4 + 1];
+    rgbF32[i * 3 + 2] = srcU8[i * 4 + 2];
+  }
+
   let samples = null;
   let labels = null;
   let centers = null;
-  let reshaped = null;
   try {
-    const imageData = new ImageData(
-      new Uint8ClampedArray(buffer),
-      width,
-      height,
-    );
-    src = cv.matFromImageData(imageData);
-    rgb = new cv.Mat();
-    cv.cvtColor(src, rgb, cv.COLOR_RGBA2RGB);
-
-    reshaped = rgb.reshape(1, pixelCount);
-    samples = new cv.Mat();
-    reshaped.convertTo(samples, cv.CV_32F);
+    // OpenCV.js では matFromArray の引数は (rows, cols, type, array) で
+    // 自動的にチャネル数 1 の Mat になる。
+    samples = cv.matFromArray(pixelCount, 3, cv.CV_32FC1, rgbF32);
 
     const criteria = new cv.TermCriteria(
       cv.TermCriteria_EPS + cv.TermCriteria_MAX_ITER,
@@ -124,9 +123,6 @@ function handle(msg) {
       message: (err && err.message) || String(err),
     });
   } finally {
-    if (src) src.delete();
-    if (rgb) rgb.delete();
-    if (reshaped) reshaped.delete();
     if (samples) samples.delete();
     if (labels) labels.delete();
     if (centers) centers.delete();

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Tabs,
@@ -35,12 +35,24 @@ const STAGE_LABEL: Record<PipelineProgress["stage"], string> = {
   write: "刺繍ファイル書き出し中",
 };
 
+type TabValue = "source" | "stitch" | "3d";
+
 export function StitchPreview({
   imageSrc,
   isProcessing,
   pattern,
   progress,
 }: Props) {
+  const [tab, setTab] = useState<TabValue>("source");
+
+  // pattern が新規に入った瞬間に stitch タブへ自動切替 (派生 state パターン)。
+  // ユーザが手動でタブを動かしたあとも、新しい pattern が来たら再度 stitch に戻す。
+  const [lastPattern, setLastPattern] = useState<StitchPattern | null>(null);
+  if (pattern !== lastPattern) {
+    setLastPattern(pattern);
+    if (pattern) setTab("stitch");
+  }
+
   return (
     <Card className="h-full">
       <CardHeader>
@@ -57,7 +69,7 @@ export function StitchPreview({
           </div>
         )}
 
-        <Tabs defaultValue={pattern ? "stitch" : "source"}>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as TabValue)}>
           <TabsList>
             <TabsTrigger value="source">元画像</TabsTrigger>
             <TabsTrigger value="stitch" disabled={!pattern}>

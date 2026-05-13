@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ImageUploader } from "@/components/image-uploader";
 import { ConversionSettings } from "@/components/conversion-settings";
@@ -10,6 +10,8 @@ import {
   convertImageToEmbroideryDirect,
   type PipelineProgress,
 } from "@/lib/pipeline";
+import { warmupPyodide } from "@/lib/pipeline/pyodide-loader";
+import { warmupOpenCV } from "@/lib/pipeline/quantize";
 import type { StitchPattern } from "@/lib/pipeline/types";
 
 export type EmbroideryFormat = "dst" | "pes" | "jef" | "exp" | "vp3";
@@ -45,6 +47,11 @@ export function EmbroideryStudio() {
   const [stitchResult, setStitchResult] = useState<StitchResult | null>(null);
   const [pattern, setPattern] = useState<StitchPattern | null>(null);
   const [progress, setProgress] = useState<PipelineProgress | null>(null);
+
+  useEffect(() => {
+    void warmupOpenCV();
+    void warmupPyodide();
+  }, []);
 
   const onImage = (src: string | null) => {
     setImageSrc(src);

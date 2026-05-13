@@ -77,10 +77,15 @@ function getWorker(): Promise<Worker> {
 
 export type QuantizeInput = {
   imageData: ImageData;
+  /** 1=不透明, 0=透明。透明ピクセルは k-means から除外し、labels に sentinel BACKGROUND_LABEL を入れる */
+  opaqueMask?: Uint8Array;
   colorCount: number;
   iterations?: number;
   epsilon?: number;
 };
+
+/** labels に入る背景 sentinel 値。Uint8Array なので 0..colorCount-1 とぶつからない 255 を使う。 */
+export const BACKGROUND_LABEL = 0xff;
 
 export type QuantizedImage = {
   imageData: ImageData;
@@ -124,7 +129,13 @@ export async function quantizeViaWorker(
     w.addEventListener("message", onMessage);
 
     const srcBuf = input.imageData.data.buffer;
-    const transfer = srcBuf.slice(0);
+    const transfer = srcBuf.slice(0) as ArrayBuffer;
+    const transferables: ArrayBuffer[] = [transfer];
+    let maskTransfer: ArrayBuffer | undefined;
+    if (input.opaqueMask) {
+      maskTransfer = input.opaqueMask.buffer.slice(0) as ArrayBuffer;
+      transferables.push(maskTransfer);
+    }
     w.postMessage(
       {
         type: "quantize",
@@ -132,11 +143,12 @@ export async function quantizeViaWorker(
         width: input.imageData.width,
         height: input.imageData.height,
         buffer: transfer,
+        maskBuffer: maskTransfer,
         colorCount: input.colorCount,
         iterations: input.iterations,
         epsilon: input.epsilon,
       },
-      [transfer],
+      transferables,
     );
   });
 }

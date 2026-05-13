@@ -1,6 +1,6 @@
 import type { StitchPattern } from "./types";
 import type { ConversionConfig } from "@/components/embroidery-studio";
-import { getPyodide } from "./pyodide-loader";
+import { warmupPyodide } from "./pyodide-loader";
 import { quantize, warmupOpenCV } from "./quantize";
 import { vectorize } from "./vectorize";
 import { generateStitches } from "./stitch";
@@ -33,9 +33,9 @@ const MAX_DIMENSION = 384;
 
 /**
  * 画像 → 刺繍データの変換パイプライン。
- * - OpenCV.js は Web Worker で動かす (メインスレッドを巻き込んだクラッシュを防ぐ)
- * - Pyodide はメインスレッドで動かす (pyembroidery 出力)
- * - imagetracerjs (pure JS) もメインスレッドで動かす
+ * - OpenCV.js は Web Worker で動かす (opencv-worker.ts)
+ * - Pyodide も Web Worker で動かす (pyodide-worker.ts)
+ * - imagetracerjs (pure JS) はメインスレッドで動かす
  */
 export async function convertImageToEmbroideryDirect(
   imageBitmap: ImageBitmap,
@@ -46,9 +46,9 @@ export async function convertImageToEmbroideryDirect(
   await warmupOpenCV();
 
   onProgress?.({ stage: "loading-py", percent: 15 });
-  const py = await getPyodide();
+  await warmupPyodide();
 
-  const imageData = bitmapToImageData(imageBitmap);
+  const { imageData, opaqueMask } = bitmapToImageData(imageBitmap);
   const aspect = imageBitmap.height / imageBitmap.width;
   const widthMm = config.widthMm;
   const heightMm = widthMm * aspect;
@@ -56,6 +56,7 @@ export async function convertImageToEmbroideryDirect(
   onProgress?.({ stage: "quantize", percent: 25 });
   const quantized = await quantize({
     imageData,
+    opaqueMask,
     colorCount: config.colorCount,
   });
 
@@ -79,7 +80,7 @@ export async function convertImageToEmbroideryDirect(
   });
 
   onProgress?.({ stage: "write", percent: 90 });
-  const fileBlob = await writeEmbroidery(py, {
+  const fileBlob = await writeEmbroidery({
     pattern,
     format: config.format,
   });
@@ -87,11 +88,17 @@ export async function convertImageToEmbroideryDirect(
   return { pattern, fileBlob };
 }
 
-function bitmapToImageData(bitmap: ImageBitmap): ImageData {
+function bitmapToImageData(bitmap: ImageBitmap): {
+  imageData: ImageData;
+  /** 1 = 不透明 (ステッチ対象)、0 = 透明 (背景としてステッチ対象外) */
+  opaqueMask: Uint8Array;
+} {
   const { width: w, height: h } = bitmap;
   const scale = Math.min(1, MAX_DIMENSION / Math.max(w, h));
   const dw = Math.max(1, Math.round(w * scale));
   const dh = Math.max(1, Math.round(h * scale));
+
+  // 1) 白で塗りつぶしてから drawImage。透過部分の RGB を (0,0,0,0) ではなく白に統一する。
   const canvas =
     typeof OffscreenCanvas !== "undefined"
       ? new OffscreenCanvas(dw, dh)
@@ -104,6 +111,31 @@ function bitmapToImageData(bitmap: ImageBitmap): ImageData {
     | CanvasRenderingContext2D
     | null;
   if (!ctx) throw new Error("Canvas 2D コンテキストを取得できません");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, dw, dh);
   ctx.drawImage(bitmap, 0, 0, dw, dh);
-  return ctx.getImageData(0, 0, dw, dh);
+  const imageData = ctx.getImageData(0, 0, dw, dh);
+
+  // 2) アルファだけを別 canvas で取得して背景マスクを作る。
+  //    白合成後の imageData では alpha が常に 255 になるため、別取りが必要。
+  const maskCanvas =
+    typeof OffscreenCanvas !== "undefined"
+      ? new OffscreenCanvas(dw, dh)
+      : Object.assign(document.createElement("canvas"), {
+          width: dw,
+          height: dh,
+        });
+  const mctx = maskCanvas.getContext("2d") as
+    | OffscreenCanvasRenderingContext2D
+    | CanvasRenderingContext2D
+    | null;
+  if (!mctx) throw new Error("Canvas 2D コンテキスト (mask) を取得できません");
+  mctx.clearRect(0, 0, dw, dh);
+  mctx.drawImage(bitmap, 0, 0, dw, dh);
+  const maskData = mctx.getImageData(0, 0, dw, dh).data;
+  const opaqueMask = new Uint8Array(dw * dh);
+  for (let i = 0; i < dw * dh; i++) {
+    opaqueMask[i] = maskData[i * 4 + 3] >= 128 ? 1 : 0;
+  }
+  return { imageData, opaqueMask };
 }

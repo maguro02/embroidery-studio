@@ -26,6 +26,9 @@ self.onmessage = (e) => {
   else queued.push(e.data);
 };
 
+// labels に書き込む「背景」 sentinel 値。Uint8Array なので 0..colorCount-1 とぶつからない 255。
+const BACKGROUND_LABEL = 0xff;
+
 function handle(msg) {
   if (!msg || msg.type !== 'quantize') return;
   const {
@@ -33,39 +36,47 @@ function handle(msg) {
     width,
     height,
     buffer,
+    maskBuffer,
     colorCount,
     iterations = 10,
     epsilon = 1.0,
   } = msg;
 
   const pixelCount = width * height;
-  if (pixelCount < colorCount) {
+  const srcU8 = new Uint8ClampedArray(buffer);
+  const opaqueMask = maskBuffer ? new Uint8Array(maskBuffer) : null;
+
+  // 不透明ピクセルだけを k-means に投入する。
+  // opaqueMask が未指定なら全ピクセル不透明として扱う (後方互換)。
+  const opaqueIndices = [];
+  for (let i = 0; i < pixelCount; i++) {
+    if (!opaqueMask || opaqueMask[i] === 1) opaqueIndices.push(i);
+  }
+  const opaqueCount = opaqueIndices.length;
+
+  if (opaqueCount < colorCount) {
     self.postMessage({
       type: 'error',
       seq,
-      message: '画像が小さすぎます (ピクセル数 < 色数)',
+      message: '不透明ピクセル数が色数より少ないため減色できません',
     });
     return;
   }
 
-  // @techstark/opencv-js のビルドでは Mat.reshape() / cvtColor が
-  // 一部公開されていない (cv.kmeans に渡せる 32F Mat を直接構築する)。
-  // RGBA → Float32 RGB をJSで作って matFromArray で samples を作る。
-  const rgbF32 = new Float32Array(pixelCount * 3);
-  const srcU8 = new Uint8ClampedArray(buffer);
-  for (let i = 0; i < pixelCount; i++) {
-    rgbF32[i * 3 + 0] = srcU8[i * 4 + 0];
-    rgbF32[i * 3 + 1] = srcU8[i * 4 + 1];
-    rgbF32[i * 3 + 2] = srcU8[i * 4 + 2];
+  // RGBA → Float32 RGB を不透明ピクセルだけで構築。
+  const rgbF32 = new Float32Array(opaqueCount * 3);
+  for (let j = 0; j < opaqueCount; j++) {
+    const i = opaqueIndices[j];
+    rgbF32[j * 3 + 0] = srcU8[i * 4 + 0];
+    rgbF32[j * 3 + 1] = srcU8[i * 4 + 1];
+    rgbF32[j * 3 + 2] = srcU8[i * 4 + 2];
   }
 
   let samples = null;
   let labels = null;
   let centers = null;
   try {
-    // OpenCV.js では matFromArray の引数は (rows, cols, type, array) で
-    // 自動的にチャネル数 1 の Mat になる。
-    samples = cv.matFromArray(pixelCount, 3, cv.CV_32FC1, rgbF32);
+    samples = cv.matFromArray(opaqueCount, 3, cv.CV_32FC1, rgbF32);
 
     const criteria = new cv.TermCriteria(
       cv.TermCriteria_EPS + cv.TermCriteria_MAX_ITER,
@@ -92,10 +103,18 @@ function handle(msg) {
       palette[k * 3 + 2] = clampByte(centers.data32F[k * 3 + 2]);
     }
 
-    const labelsArr = new Uint8Array(pixelCount);
+    // 出力 labels と RGBA: 透明ピクセルは sentinel ラベル + 白で埋める。
+    const labelsArr = new Uint8Array(pixelCount).fill(BACKGROUND_LABEL);
     const outRgba = new Uint8ClampedArray(pixelCount * 4);
     for (let i = 0; i < pixelCount; i++) {
-      const k = labels.data32S[i];
+      outRgba[i * 4 + 0] = 255;
+      outRgba[i * 4 + 1] = 255;
+      outRgba[i * 4 + 2] = 255;
+      outRgba[i * 4 + 3] = 255;
+    }
+    for (let j = 0; j < opaqueCount; j++) {
+      const i = opaqueIndices[j];
+      const k = labels.data32S[j];
       labelsArr[i] = k;
       outRgba[i * 4 + 0] = palette[k * 3 + 0];
       outRgba[i * 4 + 1] = palette[k * 3 + 1];

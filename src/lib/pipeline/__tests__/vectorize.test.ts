@@ -22,8 +22,41 @@ import {
   pointInPolygon,
   buildShapesByContainment,
   vectorize,
+  dilateForegroundMask,
   type Tracer,
 } from "../vectorize";
+
+function maskToString(data: Uint8ClampedArray, w: number, h: number): string {
+  const rows: string[] = [];
+  for (let y = 0; y < h; y++) {
+    let row = "";
+    for (let x = 0; x < w; x++) row += data[(y * w + x) * 4] === 0 ? "#" : ".";
+    rows.push(row);
+  }
+  return rows.join("\n");
+}
+
+function makeMaskFromAscii(ascii: string): {
+  data: Uint8ClampedArray;
+  width: number;
+  height: number;
+} {
+  const rows = ascii.trim().split("\n").map((r) => r.trim());
+  const height = rows.length;
+  const width = rows[0].length;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const v = rows[y][x] === "#" ? 0 : 255;
+      const i = (y * width + x) * 4;
+      data[i + 0] = v;
+      data[i + 1] = v;
+      data[i + 2] = v;
+      data[i + 3] = 255;
+    }
+  }
+  return { data, width, height };
+}
 
 describe("parsePathD", () => {
   it("単一の M..Z を 1 ポリゴンとして返す", () => {
@@ -110,6 +143,79 @@ describe("buildShapesByContainment", () => {
     expect(shapes).toHaveLength(2);
     expect(shapes[0].holes).toHaveLength(0);
     expect(shapes[1].holes).toHaveLength(0);
+  });
+});
+
+describe("dilateForegroundMask", () => {
+  it("中央 1 画素が iterations=1 で 4-neighbor 膨張して 5 画素になる", () => {
+    const { data, width, height } = makeMaskFromAscii(
+      `
+      .....
+      .....
+      ..#..
+      .....
+      .....
+    `,
+    );
+    dilateForegroundMask(data, width, height, 1);
+    expect(maskToString(data, width, height)).toBe(
+      [
+        ".....",
+        "..#..",
+        ".###.",
+        "..#..",
+        ".....",
+      ].join("\n"),
+    );
+  });
+
+  it("iterations=0 はマスクを変更しない", () => {
+    const { data, width, height } = makeMaskFromAscii(
+      `
+      .#.
+      ###
+      .#.
+    `,
+    );
+    const before = maskToString(data, width, height);
+    dilateForegroundMask(data, width, height, 0);
+    expect(maskToString(data, width, height)).toBe(before);
+  });
+
+  it("画像端でも 4-neighbor が範囲外を踏まない", () => {
+    const { data, width, height } = makeMaskFromAscii(
+      `
+      #..
+      ...
+      ...
+    `,
+    );
+    dilateForegroundMask(data, width, height, 1);
+    expect(maskToString(data, width, height)).toBe(
+      ["##.", "#..", "..."].join("\n"),
+    );
+  });
+
+  it("vectorize から dilatePx を渡すとトレースに膨張後マスクが届く", async () => {
+    let received: ImageData | null = null;
+    const captureTracer: Tracer = {
+      async trace(mask) {
+        received = mask;
+        return [];
+      },
+    };
+    // 3x3 の中央 1 画素を colorIndex=0 にする
+    const labels = new Uint8Array(3 * 3).fill(1);
+    labels[4] = 0;
+    await vectorize(
+      { labels, width: 3, height: 3, palette: [[0, 0, 0]], dilatePx: 1 },
+      captureTracer,
+    );
+    expect(received).not.toBeNull();
+    const r = received as unknown as ImageData;
+    expect(maskToString(r.data, r.width, r.height)).toBe(
+      [".#.", "###", ".#."].join("\n"),
+    );
   });
 });
 

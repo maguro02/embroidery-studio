@@ -28,7 +28,16 @@ export type ConversionConfig = {
   colorCount: number;
   stitchDensity: number;
   satinMaxWidthMm: number;
+  /**
+   * 量子化前の色平滑化強度 (0..4)。bilateralFilter のプリセットにマップされ、
+   * 境界を保ったまま中間色を潰すので影色などの細いクラスタが背景に吸われにくくなる。
+   */
   smoothing: number;
+  /**
+   * 各色レイヤーのマスクを何 px 膨張させてからトレースするか (0..3)。
+   * 隣接色レイヤーが互いに重なって pull gap を埋める。
+   */
+  boundaryDilatePx: number;
   /** 全体の fill 縫い向き (deg)。0=水平、90=垂直。 */
   fillAngleDeg: number;
   /** 色 (colorIndex) ごとの fill 向き override (deg)。 */
@@ -43,7 +52,8 @@ export const defaultConfig: ConversionConfig = {
   colorCount: 6,
   stitchDensity: 0.4,
   satinMaxWidthMm: 5,
-  smoothing: 1,
+  smoothing: 2,
+  boundaryDilatePx: 1,
   fillAngleDeg: 45,
   fillAngleByColor: {},
   fillStrategy: "global-angle",
@@ -90,7 +100,8 @@ export function EmbroideryStudio() {
     const invalidates =
       next.widthMm !== config.widthMm ||
       next.colorCount !== config.colorCount ||
-      next.smoothing !== config.smoothing;
+      next.smoothing !== config.smoothing ||
+      next.boundaryDilatePx !== config.boundaryDilatePx;
     if (invalidates) {
       setPrepipeline(null);
       setConfig({ ...next, fillAngleByColor: {} });

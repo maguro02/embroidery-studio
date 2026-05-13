@@ -82,6 +82,12 @@ export type QuantizeInput = {
   colorCount: number;
   iterations?: number;
   epsilon?: number;
+  /**
+   * k-means 前段の bilateralFilter 強度 (0..4)。
+   * 0 でフィルタ無効。境界を保ったまま中間色を均すのでクラスタリングが安定し、
+   * 細い影色が背景に吸われるのを抑える。
+   */
+  smoothing?: number;
 };
 
 /** labels に入る背景 sentinel 値。Uint8Array なので 0..colorCount-1 とぶつからない 255 を使う。 */
@@ -147,6 +153,7 @@ export async function quantizeViaWorker(
         colorCount: input.colorCount,
         iterations: input.iterations,
         epsilon: input.epsilon,
+        smoothing: input.smoothing,
       },
       transferables,
     );

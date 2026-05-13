@@ -84,6 +84,7 @@ export async function runPrepipeline(
     imageData,
     opaqueMask,
     colorCount: config.colorCount,
+    smoothing: config.smoothing,
   });
 
   onProgress?.({ stage: "vectorize", percent: 50 });
@@ -92,6 +93,7 @@ export async function runPrepipeline(
     width: imageData.width,
     height: imageData.height,
     palette: quantized.palette,
+    dilatePx: config.boundaryDilatePx,
   });
 
   return {

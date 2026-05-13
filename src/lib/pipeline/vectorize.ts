@@ -21,6 +21,12 @@ export type VectorizeInput = {
   turdsize?: number;
   alphamax?: number;
   opttolerance?: number;
+  /**
+   * 各色レイヤーの 2 値マスクをトレース前に何 px 膨張させるか。
+   * 隣接色のレイヤー境界が pull gap で開かないように、互いに重ねるための補正。
+   * 0 で無効、1〜2 が現実的な値。
+   */
+  dilatePx?: number;
 };
 
 export type ColorRegion = {
@@ -93,11 +99,12 @@ export async function vectorize(
     turdsize = 8,
     alphamax = 1,
     opttolerance = 0.2,
+    dilatePx = 0,
   } = input;
   const regions: ColorRegion[] = [];
 
   for (let colorIndex = 0; colorIndex < palette.length; colorIndex++) {
-    const mask = buildMask(labels, width, height, colorIndex);
+    const mask = buildMask(labels, width, height, colorIndex, dilatePx);
     if (mask === null) continue;
 
     const dList = await tracer.trace(mask, { turdsize, alphamax, opttolerance });
@@ -218,6 +225,7 @@ function buildMask(
   width: number,
   height: number,
   colorIndex: number,
+  dilatePx: number,
 ): ImageData | null {
   const data = new Uint8ClampedArray(width * height * 4);
   let count = 0;
@@ -231,7 +239,52 @@ function buildMask(
     data[i * 4 + 3] = 255;
   }
   if (count === 0) return null;
+  if (dilatePx > 0) dilateForegroundMask(data, width, height, dilatePx);
   return new ImageData(data, width, height);
+}
+
+/**
+ * RGBA マスクの前景 (R=0) を 4-neighbor で `iterations` 回膨張させる。
+ * imagetracerjs に渡す直前の補正なので、隣接色レイヤーが pull gap で開くのを防ぐ。
+ */
+export function dilateForegroundMask(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  iterations: number,
+): void {
+  const n = width * height;
+  let mask = new Uint8Array(n);
+  for (let i = 0; i < n; i++) mask[i] = data[i * 4] === 0 ? 1 : 0;
+  for (let k = 0; k < iterations; k++) {
+    const next = new Uint8Array(n);
+    for (let y = 0; y < height; y++) {
+      const yw = y * width;
+      for (let x = 0; x < width; x++) {
+        const i = yw + x;
+        if (mask[i]) {
+          next[i] = 1;
+          continue;
+        }
+        if (
+          (x > 0 && mask[i - 1]) ||
+          (x + 1 < width && mask[i + 1]) ||
+          (y > 0 && mask[i - width]) ||
+          (y + 1 < height && mask[i + width])
+        ) {
+          next[i] = 1;
+        }
+      }
+    }
+    mask = next;
+  }
+  for (let i = 0; i < n; i++) {
+    const v = mask[i] ? 0 : 255;
+    data[i * 4 + 0] = v;
+    data[i * 4 + 1] = v;
+    data[i * 4 + 2] = v;
+    data[i * 4 + 3] = 255;
+  }
 }
 
 const BEZIER_SAMPLES = 8;

@@ -139,13 +139,22 @@ export function ConversionSettings({
           onChange={(v) => update("fillAngleDeg", v)}
         />
         <SliderField
-          label="平滑化"
+          label="色平滑化"
           unit=""
           value={value.smoothing}
           min={0}
           max={4}
           step={1}
           onChange={(v) => update("smoothing", v)}
+        />
+        <SliderField
+          label="境界の重ね合わせ"
+          unit="px"
+          value={value.boundaryDilatePx}
+          min={0}
+          max={3}
+          step={1}
+          onChange={(v) => update("boundaryDilatePx", v)}
         />
 
         <Button

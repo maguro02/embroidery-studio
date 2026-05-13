@@ -168,7 +168,8 @@ function SliderField({
         max={max}
         step={step}
         onValueChange={(v) => {
-          if (Array.isArray(v) && typeof v[0] === "number") onChange(v[0]);
+          const next = typeof v === "number" ? v : v[0];
+          if (typeof next === "number") onChange(next);
         }}
       />
     </div>

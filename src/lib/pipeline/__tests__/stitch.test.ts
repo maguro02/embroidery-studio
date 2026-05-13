@@ -1,0 +1,537 @@
+import { describe, it, expect } from "vitest";
+import { __internal, generateStitches } from "../stitch";
+import type { Shape, StitchBlock } from "../types";
+import type { ColorRegion } from "../vectorize";
+
+const {
+  fillStitches,
+  intersectScanline,
+  analyzeShape,
+  appendStitchesWithJumps,
+} = __internal;
+
+describe("intersectScanline (multi-ring)", () => {
+  it("外形のみのとき従来通り 2 交点", () => {
+    const outer: [number, number][] = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ];
+    const xs = intersectScanline([outer], 0, 5, [1, 0]);
+    xs.sort((a, b) => a - b);
+    expect(xs.length).toBe(2);
+    expect(xs[0]).toBeCloseTo(0);
+    expect(xs[1]).toBeCloseTo(10);
+  });
+
+  it("穴があると 4 交点", () => {
+    const outer: [number, number][] = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ];
+    const hole: [number, number][] = [
+      [3, 3],
+      [7, 3],
+      [7, 7],
+      [3, 7],
+    ];
+    const xs = intersectScanline([outer, hole], 0, 5, [1, 0]);
+    xs.sort((a, b) => a - b);
+    expect(xs.length).toBe(4);
+    expect(xs[0]).toBeCloseTo(0);
+    expect(xs[1]).toBeCloseTo(3);
+    expect(xs[2]).toBeCloseTo(7);
+    expect(xs[3]).toBeCloseTo(10);
+  });
+});
+
+describe("fillStitches with hole", () => {
+  it("穴を持つ正方形では、穴の中をまたぐ縫い目が生成されない", () => {
+    const outer: [number, number][] = [
+      [0, 0],
+      [20, 0],
+      [20, 20],
+      [0, 20],
+    ];
+    const hole: [number, number][] = [
+      [8, 8],
+      [12, 8],
+      [12, 12],
+      [8, 12],
+    ];
+    const shape: Shape = { outer, holes: [hole] };
+    // angleDeg=0 → dir=[1,0], perp=[0,1] で水平スキャン
+    const segments = fillStitches(shape, 1, 0);
+    const allPts = segments.flat();
+    // 穴の中 y∈[9,11], x∈[8.5,11.5] にステッチ端点が来ないことを確認
+    for (let yi = 9; yi <= 11; yi++) {
+      const onLine = allPts.filter(
+        ([, y]: [number, number]) => Math.abs(y - yi) < 0.5,
+      );
+      const inHole = onLine.filter(
+        ([x]: [number, number]) => x > 8.5 && x < 11.5,
+      );
+      expect(inHole.length).toBe(0);
+    }
+  });
+
+  it("穴ありで複数 segment に分割される", () => {
+    const outer: [number, number][] = [
+      [0, 0],
+      [20, 0],
+      [20, 20],
+      [0, 20],
+    ];
+    const hole: [number, number][] = [
+      [8, 8],
+      [12, 8],
+      [12, 12],
+      [8, 12],
+    ];
+    const shape: Shape = { outer, holes: [hole] };
+    const segments = fillStitches(shape, 1, 0);
+    // 各 segment は 2 点で穴を跨がない区間
+    for (const seg of segments) {
+      expect(seg.length).toBe(2);
+    }
+    // 穴 (y∈[8,12]) を跨ぐ scanline は 2 segment に分かれている
+    const segsOnHoleLine = segments.filter(
+      (seg) => Math.abs(seg[0][1] - 10) < 0.5,
+    );
+    expect(segsOnHoleLine.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("穴なしのときは各 scanline が 1 segment", () => {
+    const outer: [number, number][] = [
+      [0, 0],
+      [20, 0],
+      [20, 20],
+      [0, 20],
+    ];
+    const shape: Shape = { outer, holes: [] };
+    const segments = fillStitches(shape, 1, 0);
+    expect(segments.length).toBeGreaterThan(0);
+    for (const seg of segments) {
+      expect(seg.length).toBe(2);
+    }
+  });
+});
+
+describe("analyzeShape は outer のみで計算", () => {
+  it("穴を渡さなくても短辺長が正しい", () => {
+    const outer: [number, number][] = [
+      [0, 0],
+      [10, 0],
+      [10, 2],
+      [0, 2],
+    ];
+    const r = analyzeShape(outer);
+    expect(r.shortSide).toBeCloseTo(2, 1);
+  });
+});
+
+describe("appendStitchesWithJumps - basic", () => {
+  it("prev=undefined のときは forceJumpAtStart=true でも jump を挿入しない", () => {
+    const block: StitchBlock = {
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      stitches: [],
+    };
+    appendStitchesWithJumps(
+      block,
+      [
+        [0, 0],
+        [1, 0],
+        [2, 0],
+      ],
+      "run",
+      0,
+      7,
+      8,
+      true,
+    );
+    expect(block.stitches.every((s) => s.kind === "run")).toBe(true);
+    expect(block.stitches.map((s) => [s.x, s.y])).toEqual([
+      [0, 0],
+      [1, 0],
+      [2, 0],
+    ]);
+  });
+
+  it("forceJumpAtStart=true + dist<=trimThreshold で trim なし jump あり、pts[0] も STITCH として残す", () => {
+    const block: StitchBlock = {
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      stitches: [{ x: 0, y: 0, kind: "run", colorIndex: 0 }],
+    };
+    appendStitchesWithJumps(
+      block,
+      [
+        [5, 0],
+        [6, 0],
+        [7, 0],
+      ],
+      "fill",
+      0,
+      7,
+      8,
+      true,
+    );
+    // 期待: prev(0,0), jump(5,0), fill(5,0), fill(6,0), fill(7,0)
+    expect(block.stitches.length).toBe(5);
+    expect(block.stitches[1]).toMatchObject({ x: 5, y: 0, kind: "jump" });
+    expect(block.stitches[2]).toMatchObject({ x: 5, y: 0, kind: "fill" });
+    expect(block.stitches[3]).toMatchObject({ x: 6, y: 0, kind: "fill" });
+    expect(block.stitches[4]).toMatchObject({ x: 7, y: 0, kind: "fill" });
+    // prev → pts[0] の gap (0 < x < 5) には fill が入らない
+    const fillsInGap = block.stitches.filter(
+      (s) => s.kind === "fill" && s.x > 0 && s.x < 5,
+    );
+    expect(fillsInGap.length).toBe(0);
+  });
+
+  it("dist>trimThreshold で trim + jump 両方挿入、pts[0] も STITCH として残す", () => {
+    const block: StitchBlock = {
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      stitches: [{ x: 0, y: 0, kind: "fill", colorIndex: 0 }],
+    };
+    appendStitchesWithJumps(
+      block,
+      [
+        [50, 0],
+        [51, 0],
+      ],
+      "fill",
+      0,
+      7,
+      8,
+      true,
+    );
+    // 期待: prev(0,0), trim(0,0), jump(50,0), fill(50,0), fill(51,0)
+    expect(block.stitches.length).toBe(5);
+    expect(block.stitches[1]).toMatchObject({ x: 0, y: 0, kind: "trim" });
+    expect(block.stitches[2]).toMatchObject({ x: 50, y: 0, kind: "jump" });
+    expect(block.stitches[3]).toMatchObject({ x: 50, y: 0, kind: "fill" });
+    expect(block.stitches[4]).toMatchObject({ x: 51, y: 0, kind: "fill" });
+    // prev → pts[0] の gap (0 < x < 50) には fill が細分化されて入らない
+    const fillStitchesOnGap = block.stitches.filter(
+      (s) => s.kind === "fill" && s.x > 0 && s.x < 50,
+    );
+    expect(fillStitchesOnGap.length).toBe(0);
+  });
+
+  it("forceJumpAtStart=false + 短距離 では jump 不要、prev から pts[0] を含めて縫う", () => {
+    const block: StitchBlock = {
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      stitches: [{ x: 0, y: 0, kind: "run", colorIndex: 0 }],
+    };
+    appendStitchesWithJumps(
+      block,
+      [
+        [3, 0],
+        [6, 0],
+      ],
+      "run",
+      0,
+      7,
+      8,
+      false,
+    );
+    expect(block.stitches.length).toBe(3);
+    expect(block.stitches.every((s) => s.kind === "run")).toBe(true);
+    expect(block.stitches.map((s) => s.x)).toEqual([0, 3, 6]);
+  });
+
+  it("forceJumpAtStart=false でも dist>maxStitchMm なら jump が入り、pts[0] は STITCH として残る", () => {
+    const block: StitchBlock = {
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      stitches: [{ x: 0, y: 0, kind: "run", colorIndex: 0 }],
+    };
+    appendStitchesWithJumps(
+      block,
+      [
+        [20, 0],
+        [21, 0],
+      ],
+      "run",
+      0,
+      7,
+      8,
+      false,
+    );
+    // 期待: prev(0,0), trim(0,0), jump(20,0), run(20,0), run(21,0)
+    expect(block.stitches[1].kind).toBe("trim");
+    expect(block.stitches[2]).toMatchObject({ x: 20, y: 0, kind: "jump" });
+    expect(block.stitches[3]).toMatchObject({ x: 20, y: 0, kind: "run" });
+    expect(block.stitches[4]).toMatchObject({ x: 21, y: 0, kind: "run" });
+    const runOnGap = block.stitches.filter(
+      (s) => s.kind === "run" && s.x > 0 && s.x < 20,
+    );
+    expect(runOnGap.length).toBe(0);
+  });
+
+  it("pts.length===1 で jump 必要なら trim+jump の後に pts[0] が STITCH として残る", () => {
+    const block: StitchBlock = {
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      stitches: [{ x: 0, y: 0, kind: "fill", colorIndex: 0 }],
+    };
+    appendStitchesWithJumps(block, [[50, 0]], "fill", 0, 7, 8, true);
+    // 期待: prev(0,0), trim(0,0), jump(50,0), fill(50,0)
+    expect(block.stitches.length).toBe(4);
+    expect(block.stitches[1].kind).toBe("trim");
+    expect(block.stitches[2]).toMatchObject({ x: 50, y: 0, kind: "jump" });
+    expect(block.stitches[3]).toMatchObject({ x: 50, y: 0, kind: "fill" });
+  });
+
+  it("ループ内で d>maxStitchMm の区間は均等に細分化される", () => {
+    const block: StitchBlock = {
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      stitches: [],
+    };
+    appendStitchesWithJumps(
+      block,
+      [
+        [0, 0],
+        [14, 0],
+      ],
+      "fill",
+      0,
+      7,
+      8,
+      false,
+    );
+    expect(block.stitches.map((s) => [s.x, s.y])).toEqual([
+      [0, 0],
+      [7, 0],
+      [14, 0],
+    ]);
+    expect(block.stitches.every((s) => s.kind === "fill")).toBe(true);
+  });
+
+  it("BUG-REGRESSION: jump 直後の prev→pts[0] 区間に kind 縫いが細分化されない", () => {
+    const block: StitchBlock = {
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      stitches: [{ x: 0, y: 0, kind: "fill", colorIndex: 0 }],
+    };
+    appendStitchesWithJumps(
+      block,
+      [
+        [100, 0],
+        [101, 0],
+      ],
+      "fill",
+      0,
+      7,
+      8,
+      true,
+    );
+    // prev→pts[0] のギャップ (0 < x < 100) に fill が細分化されて入らないこと（バグの核心）
+    const fillsInGap = block.stitches.filter(
+      (s) => s.kind === "fill" && s.x > 0 && s.x < 100,
+    );
+    expect(fillsInGap.length).toBe(0);
+    // jump は 1 本
+    expect(block.stitches.filter((s) => s.kind === "jump").length).toBe(1);
+    // pts[0]=(100,0) と pts[1]=(101,0) は STITCH として残る
+    expect(
+      block.stitches.some((s) => s.kind === "fill" && s.x === 100 && s.y === 0),
+    ).toBe(true);
+    expect(
+      block.stitches.some((s) => s.kind === "fill" && s.x === 101 && s.y === 0),
+    ).toBe(true);
+  });
+});
+
+describe("generateStitches integration - jump-after-init bug", () => {
+  it("離れた 2 つの fill 矩形の間に fill 縫い目が現れない", () => {
+    const regions: ColorRegion[] = [
+      {
+        colorIndex: 0,
+        rgb: [0, 0, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [0, 0],
+              [50, 0],
+              [50, 50],
+              [0, 50],
+            ],
+            holes: [],
+          },
+          {
+            outer: [
+              [200, 0],
+              [250, 0],
+              [250, 50],
+              [200, 50],
+            ],
+            holes: [],
+          },
+        ],
+      },
+    ];
+    const pattern = generateStitches({
+      regions,
+      widthMm: 300,
+      heightMm: 300,
+      widthPx: 300,
+      heightPx: 300,
+      stitchDensityMm: 1,
+      satinMaxWidthMm: 2,
+    });
+    const block = pattern.blocks[0];
+    const fillsInGap = block.stitches.filter(
+      (s) => s.kind === "fill" && s.x > 55 && s.x < 195,
+    );
+    expect(fillsInGap.length).toBe(0);
+    const jumpsInGap = block.stitches.filter(
+      (s) => s.kind === "jump" && s.x > 50 && s.x < 250,
+    );
+    expect(jumpsInGap.length).toBeGreaterThan(0);
+  });
+
+  it("離れた 2 つの細い outline (run) の間に run 縫い目が現れない", () => {
+    const regions: ColorRegion[] = [
+      {
+        colorIndex: 0,
+        rgb: [0, 0, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [0, 0],
+              [10, 0],
+              [10, 0.5],
+              [0, 0.5],
+            ],
+            holes: [],
+          },
+          {
+            outer: [
+              [100, 0],
+              [110, 0],
+              [110, 0.5],
+              [100, 0.5],
+            ],
+            holes: [],
+          },
+        ],
+      },
+    ];
+    const pattern = generateStitches({
+      regions,
+      widthMm: 200,
+      heightMm: 200,
+      widthPx: 200,
+      heightPx: 200,
+      stitchDensityMm: 1,
+      satinMaxWidthMm: 2,
+    });
+    const block = pattern.blocks[0];
+    const runsInGap = block.stitches.filter(
+      (s) => s.kind === "run" && s.x > 15 && s.x < 95,
+    );
+    expect(runsInGap.length).toBe(0);
+  });
+
+  it("離れた 2 本の satin 棒の間に satin 縫い目が現れない", () => {
+    const regions: ColorRegion[] = [
+      {
+        colorIndex: 0,
+        rgb: [0, 0, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [0, 0],
+              [20, 0],
+              [20, 1],
+              [0, 1],
+            ],
+            holes: [],
+          },
+          {
+            outer: [
+              [100, 0],
+              [120, 0],
+              [120, 1],
+              [100, 1],
+            ],
+            holes: [],
+          },
+        ],
+      },
+    ];
+    const pattern = generateStitches({
+      regions,
+      widthMm: 200,
+      heightMm: 200,
+      widthPx: 200,
+      heightPx: 200,
+      stitchDensityMm: 1,
+      satinMaxWidthMm: 2,
+    });
+    const block = pattern.blocks[0];
+    const satinsInGap = block.stitches.filter(
+      (s) => s.kind === "satin" && s.x > 25 && s.x < 95,
+    );
+    expect(satinsInGap.length).toBe(0);
+  });
+
+  it("穴あき矩形を fill しても、穴の中を fill 縫い目が横断しない", () => {
+    const regions: ColorRegion[] = [
+      {
+        colorIndex: 0,
+        rgb: [0, 0, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [0, 0],
+              [100, 0],
+              [100, 100],
+              [0, 100],
+            ],
+            holes: [
+              [
+                [40, 40],
+                [60, 40],
+                [60, 60],
+                [40, 60],
+              ],
+            ],
+          },
+        ],
+      },
+    ];
+    const pattern = generateStitches({
+      regions,
+      widthMm: 100,
+      heightMm: 100,
+      widthPx: 100,
+      heightPx: 100,
+      stitchDensityMm: 1,
+      satinMaxWidthMm: 2,
+    });
+    const block = pattern.blocks[0];
+    const fillsInHole = block.stitches.filter(
+      (s) =>
+        s.kind === "fill" && s.x > 41 && s.x < 59 && s.y > 41 && s.y < 59,
+    );
+    expect(fillsInHole.length).toBe(0);
+  });
+});

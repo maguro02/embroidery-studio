@@ -1,3 +1,5 @@
+import type { Point2D, Polygon, Shape } from "./types";
+
 // imagetracerjs は型定義なしの CommonJS パッケージ
 // @ts-expect-error -- no @types provided
 import ImageTracer from "imagetracerjs";
@@ -25,8 +27,13 @@ export type ColorRegion = {
   colorIndex: number;
   rgb: [number, number, number];
   svgPath: string;
-  /** SVG path をパースした閉ポリゴン列 (px 座標、even-odd 想定) */
-  polygons: Array<Array<[number, number]>>;
+  /** imagetracerjs の <path> 単位で構造化された領域群 (外形 + 穴) */
+  shapes: Shape[];
+  /**
+   * @deprecated 後方互換のために残す。Phase 2 で消す予定。
+   *   外形・穴をフラットに並べた配列。
+   */
+  polygons: Polygon[];
 };
 
 export interface Tracer {
@@ -94,22 +101,116 @@ export async function vectorize(
     if (mask === null) continue;
 
     const dList = await tracer.trace(mask, { turdsize, alphamax, opttolerance });
-    const polygons: Array<Array<[number, number]>> = [];
+
+    // imagetracerjs は「外形 + 直接の穴」を 1 つの <path> にまとめ、
+    // 穴の中の島はさらに別の <path> として独立出力する仕様。
+    // そのため per-color レイヤー全体のサブパスを集めて深さで再分類する必要がある:
+    //   深さ 0/2/... = 塗る領域 (outer)、深さ 1/3/... = 穴 (hole)。
+    const allSubs: Polygon[] = [];
     for (const d of dList) {
       const subs = parsePathD(d);
-      polygons.push(...subs);
+      allSubs.push(...subs);
     }
-    if (polygons.length === 0) continue;
+    if (allSubs.length === 0) continue;
+
+    const shapes = buildShapesByContainment(allSubs);
+    if (shapes.length === 0) continue;
+
+    const flatPolys: Polygon[] = [];
+    for (const s of shapes) flatPolys.push(s.outer, ...s.holes);
 
     regions.push({
       colorIndex,
       rgb: palette[colorIndex],
       svgPath: dList.join(" "),
-      polygons,
+      shapes,
+      polygons: flatPolys,
     });
   }
 
   return regions;
+}
+
+/** 符号付き面積（>0: CCW, <0: CW, 0: 退化）。 */
+export function signedArea(poly: Polygon): number {
+  let a = 0;
+  for (let i = 0, n = poly.length; i < n; i++) {
+    const [x1, y1] = poly[i];
+    const [x2, y2] = poly[(i + 1) % n];
+    a += x1 * y2 - x2 * y1;
+  }
+  return a / 2;
+}
+
+/** 点 p がポリゴン内にあるか（even-odd / ray casting）。 */
+export function pointInPolygon(p: Point2D, poly: Polygon): boolean {
+  const [x, y] = p;
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i];
+    const [xj, yj] = poly[j];
+    const intersect =
+      yi > y !== yj > y &&
+      x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-12) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/** A が B に完全に内包されるか（代表点で判定）。 */
+function isInside(inner: Polygon, outer: Polygon): boolean {
+  if (inner.length === 0) return false;
+  return pointInPolygon(inner[0], outer);
+}
+
+/** Shape の全ての穴が外形に内包されているか。 */
+export function holesAreInsideOuter(shape: Shape): boolean {
+  return shape.holes.every((h) => isInside(h, shape.outer));
+}
+
+/**
+ * 包含グラフを構築し、深さ偶数を outer・奇数を直近 outer の hole として再構成。
+ * 想定: 1 つの <path> 内に複数の連結成分があるケース、または出力規約が崩れた異常系。
+ */
+export function buildShapesByContainment(subs: Polygon[]): Shape[] {
+  const n = subs.length;
+  const depth = new Array<number>(n).fill(0);
+  const parent = new Array<number>(n).fill(-1);
+  const absArea = subs.map((s) => Math.abs(signedArea(s)));
+
+  for (let i = 0; i < n; i++) {
+    let bestParent = -1;
+    let bestArea = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (i === j) continue;
+      if (isInside(subs[i], subs[j])) {
+        depth[i]++;
+        if (absArea[j] < bestArea) {
+          bestArea = absArea[j];
+          bestParent = j;
+        }
+      }
+    }
+    parent[i] = bestParent;
+  }
+
+  const shapes: Shape[] = [];
+  const outerIdx: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (depth[i] % 2 === 0) {
+      shapes.push({ outer: subs[i], holes: [] });
+      outerIdx.push(i);
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    if (depth[i] % 2 === 1) {
+      const p = parent[i];
+      const shapeIdx = outerIdx.indexOf(p);
+      if (shapeIdx >= 0) shapes[shapeIdx].holes.push(subs[i]);
+      // shapeIdx < 0 はあり得ない構造（孤立 hole）。捨てる。
+    }
+  }
+  return shapes;
 }
 
 function buildMask(
@@ -136,9 +237,9 @@ function buildMask(
 const BEZIER_SAMPLES = 8;
 
 /** SVG path d 属性をパースして閉ポリゴン群を返す。Bezier は8分割で線形近似。 */
-export function parsePathD(d: string): Array<Array<[number, number]>> {
-  const polygons: Array<Array<[number, number]>> = [];
-  let current: Array<[number, number]> = [];
+export function parsePathD(d: string): Polygon[] {
+  const polygons: Polygon[] = [];
+  let current: Polygon = [];
   let cx = 0;
   let cy = 0;
   let startX = 0;

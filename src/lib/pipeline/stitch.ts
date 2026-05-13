@@ -1,4 +1,10 @@
-import type { StitchPattern, StitchBlock, Stitch, StitchKind } from "./types";
+import type {
+  StitchPattern,
+  StitchBlock,
+  Stitch,
+  StitchKind,
+  Shape,
+} from "./types";
 import type { ColorRegion } from "./vectorize";
 
 export type StitchInput = {
@@ -11,6 +17,8 @@ export type StitchInput = {
   satinMaxWidthMm: number;
   runMaxWidthMm?: number;
   maxStitchMm?: number;
+  /** この距離より長い jump の前に trim (糸切り) を挿入する。PES/JEF/EXP/VP3 で渡り糸を切るのに使う。 */
+  trimThresholdMm?: number;
   fillAngleDeg?: number;
 };
 
@@ -28,6 +36,7 @@ export function generateStitches(input: StitchInput): StitchPattern {
     satinMaxWidthMm,
     runMaxWidthMm = 0.6,
     maxStitchMm = 7,
+    trimThresholdMm = 8,
     fillAngleDeg = 45,
   } = input;
 
@@ -45,36 +54,65 @@ export function generateStitches(input: StitchInput): StitchPattern {
       stitches: [],
     };
 
-    for (const polyPx of region.polygons) {
-      if (polyPx.length < 3) continue;
-      const polyMm: Polygon = polyPx.map(([x, y]) => [x * mmPerPx, y * mmPerPx]);
+    for (const shapePx of region.shapes) {
+      if (shapePx.outer.length < 3) continue;
 
-      const { shortSide, longAxis, center } = analyzeShape(polyMm);
-      const aspectRatio = computeAspectRatio(polyMm, longAxis, center);
+      const outerMm: Polygon = shapePx.outer.map(([x, y]) => [
+        x * mmPerPx,
+        y * mmPerPx,
+      ]);
+      const holesMm: Polygon[] = shapePx.holes
+        .filter((h) => h.length >= 3)
+        .map((h) => h.map(([x, y]) => [x * mmPerPx, y * mmPerPx] as Point));
+      const shapeMm: Shape = { outer: outerMm, holes: holesMm };
+      const hasHoles = holesMm.length > 0;
 
-      let kind: StitchKind;
-      let pts: Point[];
+      const { shortSide, longAxis, center } = analyzeShape(outerMm);
+      const aspectRatio = computeAspectRatio(outerMm, longAxis, center);
 
+      // どの kind でも shape 境界では直線描画を切るため必ず jump を強制する。
+      // block 内の最初の stitch では prev=undefined のため自動的に jump はスキップされる。
       if (shortSide < runMaxWidthMm) {
-        kind = "run";
-        pts = resamplePolyline(polyMm, stitchDensityMm);
-      } else if (shortSide < satinMaxWidthMm && aspectRatio > 4) {
-        kind = "satin";
-        pts = satinStitches(polyMm, stitchDensityMm, longAxis, center);
+        const pts = resamplePolyline(outerMm, stitchDensityMm);
+        if (pts.length === 0) continue;
+        appendStitchesWithJumps(
+          block,
+          pts,
+          "run",
+          region.colorIndex,
+          maxStitchMm,
+          trimThresholdMm,
+          true,
+        );
+      } else if (!hasHoles && shortSide < satinMaxWidthMm && aspectRatio > 4) {
+        const pts = satinStitches(outerMm, stitchDensityMm, longAxis, center);
+        if (pts.length === 0) continue;
+        appendStitchesWithJumps(
+          block,
+          pts,
+          "satin",
+          region.colorIndex,
+          maxStitchMm,
+          trimThresholdMm,
+          true,
+        );
       } else {
-        kind = "fill";
-        pts = fillStitches(polyMm, stitchDensityMm, fillAngleDeg);
+        // fill: 穴跨ぎや scanline 行間で直線描画が連続しないよう、
+        // セグメント単位で必ず jump を挿入する。
+        const segments = fillStitches(shapeMm, stitchDensityMm, fillAngleDeg);
+        for (const seg of segments) {
+          if (seg.length === 0) continue;
+          appendStitchesWithJumps(
+            block,
+            seg,
+            "fill",
+            region.colorIndex,
+            maxStitchMm,
+            trimThresholdMm,
+            true,
+          );
+        }
       }
-
-      if (pts.length === 0) continue;
-
-      appendStitchesWithJumps(
-        block,
-        pts,
-        kind,
-        region.colorIndex,
-        maxStitchMm,
-      );
     }
 
     if (block.stitches.length > 0) {
@@ -104,19 +142,51 @@ function appendStitchesWithJumps(
   kind: StitchKind,
   colorIndex: number,
   maxStitchMm: number,
+  trimThresholdMm: number,
+  forceJumpAtStart = false,
 ) {
+  if (pts.length === 0) return;
   const prev = block.stitches[block.stitches.length - 1];
-  if (prev && distance(prev.x, prev.y, pts[0][0], pts[0][1]) > maxStitchMm) {
+  const dist = prev
+    ? distance(prev.x, prev.y, pts[0][0], pts[0][1])
+    : 0;
+  const needJump =
+    prev !== undefined && (forceJumpAtStart || dist > maxStitchMm);
+
+  let lastX: number;
+  let lastY: number;
+
+  if (needJump && prev) {
+    // 渡り糸が長い場合は jump 前に trim を挿入して、糸切り対応機種で確実に切る。
+    // trim 自体は座標を進めず、現在位置 (prev) で「糸を切る」コマンドとして扱われる。
+    if (dist > trimThresholdMm) {
+      block.stitches.push({
+        x: prev.x,
+        y: prev.y,
+        kind: "trim",
+        colorIndex,
+      });
+    }
+    // jump は pts[0] への移動そのもの。針位置を pts[0] に進める。
     block.stitches.push({
       x: pts[0][0],
       y: pts[0][1],
       kind: "jump",
       colorIndex,
     });
+    // lastX/Y を pts[0] に揃えることで、ループ最初の pts[0] 処理は d=0 となり、
+    // prev → pts[0] のギャップに kind 縫い目が細分化されて挿入されない。
+    // 一方で pts[0] 自体は STITCH として 1 点 push されるため、JUMP 後の
+    // セグメント開始点 (scanline の pa など) がアンカーとして刺繍ファイルに記録される。
+    lastX = pts[0][0];
+    lastY = pts[0][1];
+  } else {
+    lastX = prev?.x ?? pts[0][0];
+    lastY = prev?.y ?? pts[0][1];
   }
-  let lastX = prev?.x ?? pts[0][0];
-  let lastY = prev?.y ?? pts[0][1];
-  for (const [x, y] of pts) {
+
+  for (let i = 0; i < pts.length; i++) {
+    const [x, y] = pts[i];
     const d = distance(lastX, lastY, x, y);
     if (d > maxStitchMm) {
       const segs = Math.ceil(d / maxStitchMm);
@@ -276,7 +346,7 @@ function satinStitches(
     const l = minL + ((maxL - minL) * i) / steps;
     const ox = center[0] + longAxis[0] * l;
     const oy = center[1] + longAxis[1] * l;
-    const crossings = intersectScanline(polygon, ox, oy, shortAxis);
+    const crossings = intersectScanline([polygon], ox, oy, shortAxis);
     if (crossings.length < 2) continue;
     crossings.sort((a, b) => a - b);
     const a = crossings[0];
@@ -294,29 +364,37 @@ function satinStitches(
   return out;
 }
 
+/**
+ * 穴を抜いた fill ステッチを「セグメント配列」として返す。
+ * 各セグメントは穴を跨がない 1 区間の塗り (= 2 点で表現)。
+ * セグメント境界には呼び出し側で必ず jump を挿入する想定なので、
+ * 穴跨ぎ部分も scanline 行間遷移もまとめて jump 扱いになる。
+ */
 function fillStitches(
-  polygon: Polygon,
+  shape: Shape,
   densityMm: number,
   angleDeg: number,
-): Point[] {
+): Point[][] {
   const rad = (angleDeg * Math.PI) / 180;
   const dir: Point = [Math.cos(rad), Math.sin(rad)];
   const perp: Point = [-dir[1], dir[0]];
 
+  // バウンディングは外形だけで十分
   let minS = Infinity;
   let maxS = -Infinity;
-  for (const [x, y] of polygon) {
+  for (const [x, y] of shape.outer) {
     const s = x * perp[0] + y * perp[1];
     if (s < minS) minS = s;
     if (s > maxS) maxS = s;
   }
 
-  const out: Point[] = [];
+  const rings: Polygon[] = [shape.outer, ...shape.holes];
+  const segments: Point[][] = [];
   let line = 0;
   for (let s = minS; s <= maxS; s += densityMm) {
     const ox = perp[0] * s;
     const oy = perp[1] * s;
-    const crossings = intersectScanline(polygon, ox, oy, dir);
+    const crossings = intersectScanline(rings, ox, oy, dir);
     if (crossings.length < 2) continue;
     crossings.sort((a, b) => a - b);
     if (crossings.length % 2 !== 0) crossings.pop();
@@ -324,45 +402,55 @@ function fillStitches(
       for (let i = 0; i < crossings.length; i += 2) {
         const a = crossings[i];
         const b = crossings[i + 1];
-        out.push([ox + dir[0] * a, oy + dir[1] * a]);
-        out.push([ox + dir[0] * b, oy + dir[1] * b]);
+        segments.push([
+          [ox + dir[0] * a, oy + dir[1] * a],
+          [ox + dir[0] * b, oy + dir[1] * b],
+        ]);
       }
     } else {
       for (let i = crossings.length - 2; i >= 0; i -= 2) {
         const a = crossings[i + 1];
         const b = crossings[i];
-        out.push([ox + dir[0] * a, oy + dir[1] * a]);
-        out.push([ox + dir[0] * b, oy + dir[1] * b]);
+        segments.push([
+          [ox + dir[0] * a, oy + dir[1] * a],
+          [ox + dir[0] * b, oy + dir[1] * b],
+        ]);
       }
     }
     line++;
   }
-  return out;
+  return segments;
 }
 
-/** ポリゴンと、点 (ox,oy) を通り方向 dir の直線との交点を、その直線上の符号付き距離として返す */
+/**
+ * 複数リング (outer + holes) と、点 (ox,oy) を通り方向 dir の直線との交点を、
+ * その直線上の符号付き距離として返す。
+ * even-odd 塗りでは、外形と穴の交点を全部集めてソート→ペア化で穴抜き塗りになる。
+ */
 function intersectScanline(
-  polygon: Polygon,
+  rings: Polygon[],
   ox: number,
   oy: number,
   dir: Point,
 ): number[] {
   const out: number[] = [];
-  const n = polygon.length;
   const nx = -dir[1];
   const ny = dir[0];
-  for (let i = 0; i < n; i++) {
-    const [x1, y1] = polygon[i];
-    const [x2, y2] = polygon[(i + 1) % n];
-    const s1 = (x1 - ox) * nx + (y1 - oy) * ny;
-    const s2 = (x2 - ox) * nx + (y2 - oy) * ny;
-    if ((s1 > 0 && s2 > 0) || (s1 < 0 && s2 < 0)) continue;
-    if (s1 === s2) continue;
-    const t = s1 / (s1 - s2);
-    const ix = x1 + (x2 - x1) * t;
-    const iy = y1 + (y2 - y1) * t;
-    const d = (ix - ox) * dir[0] + (iy - oy) * dir[1];
-    out.push(d);
+  for (const ring of rings) {
+    const n = ring.length;
+    for (let i = 0; i < n; i++) {
+      const [x1, y1] = ring[i];
+      const [x2, y2] = ring[(i + 1) % n];
+      const s1 = (x1 - ox) * nx + (y1 - oy) * ny;
+      const s2 = (x2 - ox) * nx + (y2 - oy) * ny;
+      if ((s1 > 0 && s2 > 0) || (s1 < 0 && s2 < 0)) continue;
+      if (s1 === s2) continue;
+      const t = s1 / (s1 - s2);
+      const ix = x1 + (x2 - x1) * t;
+      const iy = y1 + (y2 - y1) * t;
+      const d = (ix - ox) * dir[0] + (iy - oy) * dir[1];
+      out.push(d);
+    }
   }
   return out;
 }
@@ -383,4 +471,6 @@ export const __internal = {
   computeAspectRatio,
   fillStitches,
   satinStitches,
+  intersectScanline,
+  appendStitchesWithJumps,
 };

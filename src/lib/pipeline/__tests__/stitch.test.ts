@@ -8,6 +8,7 @@ const {
   intersectScanline,
   analyzeShape,
   appendStitchesWithJumps,
+  resolveShapeFillAngle,
 } = __internal;
 
 describe("intersectScanline (multi-ring)", () => {
@@ -351,6 +352,183 @@ describe("appendStitchesWithJumps - basic", () => {
   });
 });
 
+describe("resolveShapeFillAngle", () => {
+  it("色別 override があれば strategy より優先される", () => {
+    const angle = resolveShapeFillAngle(
+      30, // override
+      "shape-long-axis",
+      45, // global
+      [0, 1], // 縦長軸
+      10, // 長い
+      1.5,
+    );
+    expect(angle).toBe(30);
+  });
+
+  it("global-angle のときは fillAngleDeg を返す", () => {
+    expect(
+      resolveShapeFillAngle(undefined, "global-angle", 45, [0, 1], 10, 1.5),
+    ).toBe(45);
+  });
+
+  it("等方形 (aspectRatio < minAspect) では global にフォールバック", () => {
+    expect(
+      resolveShapeFillAngle(undefined, "shape-long-axis", 45, [0, 1], 1.2, 1.5),
+    ).toBe(45);
+  });
+
+  it("shape-long-axis は長軸方向の角度を返す", () => {
+    // longAxis = [0,1] (垂直) → atan2(1,0) = 90°
+    expect(
+      resolveShapeFillAngle(undefined, "shape-long-axis", 0, [0, 1], 10, 1.5),
+    ).toBeCloseTo(90);
+    // longAxis = [1,0] (水平) → atan2(0,1) = 0°
+    expect(
+      resolveShapeFillAngle(undefined, "shape-long-axis", 0, [1, 0], 10, 1.5),
+    ).toBeCloseTo(0);
+  });
+
+  it("shape-cross-axis は長軸 + 90° を返す", () => {
+    expect(
+      resolveShapeFillAngle(undefined, "shape-cross-axis", 0, [0, 1], 10, 1.5),
+    ).toBeCloseTo(180);
+    expect(
+      resolveShapeFillAngle(undefined, "shape-cross-axis", 0, [1, 0], 10, 1.5),
+    ).toBeCloseTo(90);
+  });
+});
+
+describe("generateStitches with fillStrategy", () => {
+  it("shape-long-axis: 縦長矩形は縦方向に塗られる", () => {
+    // 縦長 (10x40) の矩形を塗る。長軸は y 方向なので、scanline は y 方向に沿う。
+    // 1 行のステッチ 2 点は (x, ymin) → (x, ymax) のように Δy >> Δx となる。
+    const regions: ColorRegion[] = [
+      {
+        colorIndex: 0,
+        rgb: [0, 0, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [0, 0],
+              [10, 0],
+              [10, 40],
+              [0, 40],
+            ],
+            holes: [],
+          },
+        ],
+      },
+    ];
+    const pattern = generateStitches({
+      regions,
+      widthMm: 50,
+      heightMm: 50,
+      widthPx: 50,
+      heightPx: 50,
+      stitchDensityMm: 1,
+      satinMaxWidthMm: 2, // satin にならないように低めに
+      fillAngleDeg: 0,
+      fillStrategy: "shape-long-axis",
+    });
+    const fills = pattern.blocks[0].stitches.filter((s) => s.kind === "fill");
+    expect(countAdjacent(fills, "vertical")).toBeGreaterThan(
+      countAdjacent(fills, "horizontal"),
+    );
+  });
+
+  it("shape-cross-axis: 縦長矩形は横方向に塗られる", () => {
+    const regions: ColorRegion[] = [
+      {
+        colorIndex: 0,
+        rgb: [0, 0, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [0, 0],
+              [10, 0],
+              [10, 40],
+              [0, 40],
+            ],
+            holes: [],
+          },
+        ],
+      },
+    ];
+    const pattern = generateStitches({
+      regions,
+      widthMm: 50,
+      heightMm: 50,
+      widthPx: 50,
+      heightPx: 50,
+      stitchDensityMm: 1,
+      satinMaxWidthMm: 2,
+      fillAngleDeg: 90, // global は縦だが strategy が cross-axis なので横になるはず
+      fillStrategy: "shape-cross-axis",
+    });
+    const fills = pattern.blocks[0].stitches.filter((s) => s.kind === "fill");
+    expect(countAdjacent(fills, "horizontal")).toBeGreaterThan(
+      countAdjacent(fills, "vertical"),
+    );
+  });
+
+  it("等方形は strategy が shape-* でも fillAngleDeg にフォールバック", () => {
+    // 20x20 の正方形 (aspect=1) → fallback して fillAngleDeg=0 (水平 scanline) になる
+    const regions: ColorRegion[] = [
+      {
+        colorIndex: 0,
+        rgb: [0, 0, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [0, 0],
+              [20, 0],
+              [20, 20],
+              [0, 20],
+            ],
+            holes: [],
+          },
+        ],
+      },
+    ];
+    const pattern = generateStitches({
+      regions,
+      widthMm: 50,
+      heightMm: 50,
+      widthPx: 50,
+      heightPx: 50,
+      stitchDensityMm: 1,
+      satinMaxWidthMm: 0.5, // satin にならないように極小
+      fillAngleDeg: 0,
+      fillStrategy: "shape-long-axis",
+    });
+    const fills = pattern.blocks[0].stitches.filter((s) => s.kind === "fill");
+    // 0° → 行内ステッチは水平方向
+    expect(countAdjacent(fills, "horizontal")).toBeGreaterThan(
+      countAdjacent(fills, "vertical"),
+    );
+  });
+});
+
+function countAdjacent(
+  stitches: { x: number; y: number }[],
+  axis: "horizontal" | "vertical",
+): number {
+  let n = 0;
+  for (let i = 1; i < stitches.length; i++) {
+    const dx = Math.abs(stitches[i].x - stitches[i - 1].x);
+    const dy = Math.abs(stitches[i].y - stitches[i - 1].y);
+    if (axis === "horizontal" && dx > dy) n++;
+    if (axis === "vertical" && dy > dx) n++;
+  }
+  return n;
+}
+
 describe("generateStitches integration - jump-after-init bug", () => {
   it("離れた 2 つの fill 矩形の間に fill 縫い目が現れない", () => {
     const regions: ColorRegion[] = [
@@ -489,6 +667,61 @@ describe("generateStitches integration - jump-after-init bug", () => {
       (s) => s.kind === "satin" && s.x > 25 && s.x < 95,
     );
     expect(satinsInGap.length).toBe(0);
+  });
+
+  it("fillAngleByColorIndex で色ごとに fill 方向を切り替えられる", () => {
+    // 同じ正方形を 2 色で塗り、色 0 = 0° (水平 scanline → 垂直方向の縞)、
+    // 色 1 = 90° (垂直 scanline → 水平方向の縞) を指定。
+    // 0° の scanline は perp=[0,1] (y 方向に行を進める) で各行内は dir=[1,0] に沿う 2 点。
+    // 90° は perp=[-1,0] (x 方向に行を進める) で各行内は dir=[0,1] に沿う 2 点。
+    const outer: [number, number][] = [
+      [0, 0],
+      [20, 0],
+      [20, 20],
+      [0, 20],
+    ];
+    const regions: ColorRegion[] = [
+      {
+        colorIndex: 0,
+        rgb: [255, 0, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [{ outer, holes: [] }],
+      },
+      {
+        colorIndex: 1,
+        rgb: [0, 0, 255],
+        svgPath: "",
+        polygons: [],
+        shapes: [{ outer, holes: [] }],
+      },
+    ];
+    const pattern = generateStitches({
+      regions,
+      widthMm: 20,
+      heightMm: 20,
+      widthPx: 20,
+      heightPx: 20,
+      stitchDensityMm: 1,
+      satinMaxWidthMm: 2,
+      fillAngleDeg: 0,
+      fillAngleByColorIndex: { 1: 90 },
+    });
+
+    const block0 = pattern.blocks.find((b) => b.colorIndex === 0)!;
+    const block1 = pattern.blocks.find((b) => b.colorIndex === 1)!;
+
+    // 色 0 (0°): 隣接する 2 つの fill 点はだいたい x 方向に並ぶ (Δy ≈ 0)。
+    const fills0 = block0.stitches.filter((s) => s.kind === "fill");
+    const horiz0 = countAdjacent(fills0, "horizontal");
+    const vert0 = countAdjacent(fills0, "vertical");
+    expect(horiz0).toBeGreaterThan(vert0);
+
+    // 色 1 (90°): 隣接する 2 つの fill 点はだいたい y 方向に並ぶ (Δx ≈ 0)。
+    const fills1 = block1.stitches.filter((s) => s.kind === "fill");
+    const horiz1 = countAdjacent(fills1, "horizontal");
+    const vert1 = countAdjacent(fills1, "vertical");
+    expect(vert1).toBeGreaterThan(horiz1);
   });
 
   it("穴あき矩形を fill しても、穴の中を fill 縫い目が横断しない", () => {

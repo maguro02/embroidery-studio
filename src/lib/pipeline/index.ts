@@ -2,7 +2,7 @@ import type { StitchPattern } from "./types";
 import type { ConversionConfig } from "@/components/embroidery-studio";
 import { warmupPyodide } from "./pyodide-loader";
 import { quantize, warmupOpenCV } from "./quantize";
-import { vectorize } from "./vectorize";
+import { vectorize, type ColorRegion } from "./vectorize";
 import { generateStitches } from "./stitch";
 import { writeEmbroidery } from "./writer";
 
@@ -26,6 +26,18 @@ export type PipelineResult = {
 };
 
 /**
+ * 量子化 + ベクター化までで得られる中間データ。色別に角度を変えて何度も
+ * 再生成するときは、これをキャッシュして `runStitchAndWrite` に渡し直す。
+ */
+export type PrepipelineResult = {
+  regions: ColorRegion[];
+  widthMm: number;
+  heightMm: number;
+  widthPx: number;
+  heightPx: number;
+};
+
+/**
  * OpenCV.js のメモリ消費と imagetracerjs の処理時間を抑えるため入力解像度を絞る。
  * 必要なら段階的に上げる。
  */
@@ -41,7 +53,21 @@ export async function convertImageToEmbroideryDirect(
   imageBitmap: ImageBitmap,
   config: ConversionConfig,
   onProgress?: (p: PipelineProgress) => void,
-): Promise<PipelineResult> {
+): Promise<PipelineResult & PrepipelineResult> {
+  const pre = await runPrepipeline(imageBitmap, config, onProgress);
+  const post = await runStitchAndWrite(pre, config, onProgress);
+  return { ...pre, ...post };
+}
+
+/**
+ * 量子化 + ベクター化までを実行して `regions` を得る。
+ * 角度だけを変えて再生成したい場合はここの結果を使い回す。
+ */
+export async function runPrepipeline(
+  imageBitmap: ImageBitmap,
+  config: ConversionConfig,
+  onProgress?: (p: PipelineProgress) => void,
+): Promise<PrepipelineResult> {
   onProgress?.({ stage: "loading-cv", percent: 5 });
   await warmupOpenCV();
 
@@ -68,15 +94,36 @@ export async function convertImageToEmbroideryDirect(
     palette: quantized.palette,
   });
 
-  onProgress?.({ stage: "stitch", percent: 75 });
-  const pattern = generateStitches({
+  return {
     regions,
     widthMm,
     heightMm,
     widthPx: imageData.width,
     heightPx: imageData.height,
+  };
+}
+
+/**
+ * `regions` から刺繍ステッチを生成し、刺繍ファイルに書き出す。
+ * `config.fillAngleDeg` / `config.fillAngleByColor` を反映する。
+ */
+export async function runStitchAndWrite(
+  pre: PrepipelineResult,
+  config: ConversionConfig,
+  onProgress?: (p: PipelineProgress) => void,
+): Promise<PipelineResult> {
+  onProgress?.({ stage: "stitch", percent: 75 });
+  const pattern = generateStitches({
+    regions: pre.regions,
+    widthMm: pre.widthMm,
+    heightMm: pre.heightMm,
+    widthPx: pre.widthPx,
+    heightPx: pre.heightPx,
     stitchDensityMm: config.stitchDensity,
     satinMaxWidthMm: config.satinMaxWidthMm,
+    fillAngleDeg: config.fillAngleDeg,
+    fillAngleByColorIndex: config.fillAngleByColor,
+    fillStrategy: config.fillStrategy,
   });
 
   onProgress?.({ stage: "write", percent: 90 });

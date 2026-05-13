@@ -19,8 +19,34 @@ export type StitchInput = {
   maxStitchMm?: number;
   /** この距離より長い jump の前に trim (糸切り) を挿入する。PES/JEF/EXP/VP3 で渡り糸を切るのに使う。 */
   trimThresholdMm?: number;
+  /** 全体の fill 角度 (deg)。0 で水平、90 で垂直。 */
   fillAngleDeg?: number;
+  /**
+   * 色 (colorIndex) ごとの fill 角度 override (deg)。
+   * 指定があれば `fillStrategy` / `fillAngleDeg` より優先される。
+   * 文字色・キャラ色など、絵柄パーツごとに縫い方向を変えたいときに使う。
+   */
+  fillAngleByColorIndex?: Record<number, number>;
+  /**
+   * shape 形状に基づいた fill 方向の決め方。
+   * - `global-angle`: 全 shape を `fillAngleDeg` で塗る (デフォルト)
+   * - `shape-long-axis`: 各 shape の PCA 長軸に沿って塗る
+   * - `shape-cross-axis`: 長軸に直交して塗る (satin と同じ感覚)
+   * 等方形 (aspectRatio < `shapeStrategyMinAspect`) の shape は不安定なので
+   * `fillAngleDeg` にフォールバックする。
+   */
+  fillStrategy?: FillStrategy;
+  /**
+   * `shape-long-axis` / `shape-cross-axis` で PCA 方向を採用する最小アスペクト比。
+   * デフォルト 1.5。これより低い shape は `fillAngleDeg` にフォールバック。
+   */
+  shapeStrategyMinAspect?: number;
 };
+
+export type FillStrategy =
+  | "global-angle"
+  | "shape-long-axis"
+  | "shape-cross-axis";
 
 type Point = [number, number];
 type Polygon = Point[];
@@ -38,6 +64,9 @@ export function generateStitches(input: StitchInput): StitchPattern {
     maxStitchMm = 7,
     trimThresholdMm = 8,
     fillAngleDeg = 45,
+    fillAngleByColorIndex,
+    fillStrategy = "global-angle",
+    shapeStrategyMinAspect = 1.5,
   } = input;
 
   void heightPx;
@@ -53,6 +82,7 @@ export function generateStitches(input: StitchInput): StitchPattern {
       rgb: region.rgb,
       stitches: [],
     };
+    const colorOverride = fillAngleByColorIndex?.[region.colorIndex];
 
     for (const shapePx of region.shapes) {
       if (shapePx.outer.length < 3) continue;
@@ -97,9 +127,20 @@ export function generateStitches(input: StitchInput): StitchPattern {
           true,
         );
       } else {
+        // 優先順位: 色別 override > strategy > 全体角度。
+        // strategy が shape-*-axis の場合は PCA 長軸から角度を導出し、
+        // 等方形 (aspectRatio < shapeStrategyMinAspect) では fillAngleDeg に戻す。
+        const shapeAngleDeg = resolveShapeFillAngle(
+          colorOverride,
+          fillStrategy,
+          fillAngleDeg,
+          longAxis,
+          aspectRatio,
+          shapeStrategyMinAspect,
+        );
         // fill: 穴跨ぎや scanline 行間で直線描画が連続しないよう、
         // セグメント単位で必ず jump を挿入する。
-        const segments = fillStitches(shapeMm, stitchDensityMm, fillAngleDeg);
+        const segments = fillStitches(shapeMm, stitchDensityMm, shapeAngleDeg);
         for (const seg of segments) {
           if (seg.length === 0) continue;
           appendStitchesWithJumps(
@@ -202,6 +243,22 @@ function appendStitchesWithJumps(
     lastX = x;
     lastY = y;
   }
+}
+
+function resolveShapeFillAngle(
+  colorOverride: number | undefined,
+  strategy: FillStrategy,
+  globalAngleDeg: number,
+  longAxis: Point,
+  aspectRatio: number,
+  minAspect: number,
+): number {
+  if (colorOverride !== undefined) return colorOverride;
+  if (strategy === "global-angle") return globalAngleDeg;
+  if (aspectRatio < minAspect) return globalAngleDeg;
+  const longRad = Math.atan2(longAxis[1], longAxis[0]);
+  const longDeg = (longRad * 180) / Math.PI;
+  return strategy === "shape-long-axis" ? longDeg : longDeg + 90;
 }
 
 function distance(x1: number, y1: number, x2: number, y2: number): number {
@@ -473,4 +530,5 @@ export const __internal = {
   satinStitches,
   intersectScanline,
   appendStitchesWithJumps,
+  resolveShapeFillAngle,
 };

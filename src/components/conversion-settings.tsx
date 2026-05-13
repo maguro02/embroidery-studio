@@ -15,6 +15,7 @@ import { Loader2, Sparkles } from "lucide-react";
 import type {
   ConversionConfig,
   EmbroideryFormat,
+  FillStrategy,
 } from "@/components/embroidery-studio";
 
 type Props = {
@@ -30,6 +31,12 @@ const FORMATS: { value: EmbroideryFormat; label: string }[] = [
   { value: "jef", label: "JEF (Janome)" },
   { value: "exp", label: "EXP (Melco)" },
   { value: "vp3", label: "VP3 (Husqvarna)" },
+];
+
+const STRATEGIES: { value: FillStrategy; label: string }[] = [
+  { value: "global-angle", label: "全体角度を使う" },
+  { value: "shape-long-axis", label: "形状の長軸に沿う" },
+  { value: "shape-cross-axis", label: "形状の長軸に直交" },
 ];
 
 export function ConversionSettings({
@@ -103,6 +110,33 @@ export function ConversionSettings({
           max={12}
           step={0.5}
           onChange={(v) => update("satinMaxWidthMm", v)}
+        />
+        <div className="space-y-2">
+          <Label>方向ストラテジ</Label>
+          <Select
+            value={value.fillStrategy}
+            onValueChange={(v) => update("fillStrategy", v as FillStrategy)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STRATEGIES.map((s) => (
+                <SelectItem key={s.value} value={s.value}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <SliderField
+          label="縫う向き (全体)"
+          unit="°"
+          value={value.fillAngleDeg}
+          min={0}
+          max={179}
+          step={1}
+          onChange={(v) => update("fillAngleDeg", v)}
         />
         <SliderField
           label="平滑化"

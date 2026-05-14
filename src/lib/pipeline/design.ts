@@ -2,6 +2,8 @@ import type {
   ObjectKind,
   ObjectProps,
   EmbroideryDesign,
+  EmbroideryObject,
+  FabricKind,
   FabricProfile,
 } from "./types";
 
@@ -36,5 +38,41 @@ export function createEmptyDesign(args: {
     heightMm: args.heightMm,
     fabric: args.fabric,
     objects: [],
+  };
+}
+
+/**
+ * EmbroideryDesign の純データ表現。FabricProfile.underlayPolicy は関数フィールドのため
+ * JSON 化できず、fabric は kind のみ残す。復元は deserializeDesign の resolver に委譲する。
+ * (index.ts への re-export 可否は Phase 1 PR5 の compose 分割で判断する。)
+ */
+export type SerializedDesign = {
+  widthMm: number;
+  heightMm: number;
+  fabric: { kind: FabricKind };
+  objects: EmbroideryObject[]; // ObjectProps の関数フィールドなし、純データ
+};
+
+/** EmbroideryDesign を JSON シリアライズ可能な純データ表現に変換する。 */
+export function serializeDesign(d: EmbroideryDesign): SerializedDesign {
+  return {
+    widthMm: d.widthMm,
+    heightMm: d.heightMm,
+    fabric: { kind: d.fabric.kind },
+    // EmbroideryObject 内に関数値は無いため deep copy で十分
+    objects: JSON.parse(JSON.stringify(d.objects)) as EmbroideryObject[],
+  };
+}
+
+/** SerializedDesign を EmbroideryDesign に復元する。fabric は resolver で構築する。 */
+export function deserializeDesign(
+  s: SerializedDesign,
+  fabricResolver: (kind: FabricKind) => FabricProfile,
+): EmbroideryDesign {
+  return {
+    widthMm: s.widthMm,
+    heightMm: s.heightMm,
+    fabric: fabricResolver(s.fabric.kind),
+    objects: s.objects,
   };
 }

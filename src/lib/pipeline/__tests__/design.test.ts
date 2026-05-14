@@ -1,6 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { createDefaultObjectProps, createEmptyDesign } from "../design";
-import type { ObjectProps, FabricProfile, EmbroideryDesign } from "../types";
+import {
+  createDefaultObjectProps,
+  createEmptyDesign,
+  serializeDesign,
+  deserializeDesign,
+} from "../design";
+import type {
+  ObjectProps,
+  FabricKind,
+  FabricProfile,
+  EmbroideryDesign,
+  UnderlayConfig,
+} from "../types";
 
 const stubFabric: FabricProfile = {
   kind: "denim",
@@ -59,5 +70,80 @@ describe("createEmptyDesign", () => {
     const d1 = createEmptyDesign({ widthMm: 1, heightMm: 1, fabric: stubFabric });
     const d2 = createEmptyDesign({ widthMm: 1, heightMm: 1, fabric: stubFabric });
     expect(d1.objects).not.toBe(d2.objects);
+  });
+});
+
+const fabricResolver = (_kind: FabricKind): FabricProfile => stubFabric;
+
+describe("serializeDesign / deserializeDesign", () => {
+  const sample: EmbroideryDesign = {
+    widthMm: 100,
+    heightMm: 80,
+    fabric: stubFabric,
+    objects: [
+      {
+        id: "a",
+        kind: "fill",
+        colorIndex: 0,
+        rgb: [10, 20, 30],
+        shape: {
+          outer: [[0, 0], [10, 0], [10, 10], [0, 10]],
+          holes: [[[3, 3], [7, 3], [7, 7], [3, 7]]],
+        },
+        props: {
+          densityMm: 0.4,
+          maxStitchMm: 4,
+          angleDeg: 45,
+          pullCompPerSideMm: { left: 0.1, right: 0.2 },
+          underlay: { kind: "zigzag", spacingMm: 2, insetMm: 0.5 },
+        },
+        order: 0,
+        locked: true,
+      },
+    ],
+  };
+
+  it("serializeDesign の結果は JSON.stringify 可能", () => {
+    const s = serializeDesign(sample);
+    expect(() => JSON.stringify(s)).not.toThrow();
+  });
+
+  it("serializeDesign は fabric.kind のみ残し underlayPolicy を含まない", () => {
+    const s = serializeDesign(sample);
+    expect(s.fabric).toEqual({ kind: "denim" });
+  });
+
+  it("serializeDesign → JSON.parse → deserializeDesign で objects が完全一致", () => {
+    const s = serializeDesign(sample);
+    const json = JSON.stringify(s);
+    const restored = deserializeDesign(JSON.parse(json), fabricResolver);
+    expect(restored.objects).toEqual(sample.objects);
+    expect(restored.widthMm).toBe(sample.widthMm);
+    expect(restored.heightMm).toBe(sample.heightMm);
+    expect(restored.fabric).toBe(stubFabric);
+  });
+
+  it("ラウンドトリップで UnderlayConfig の 5 種別が保持される", () => {
+    const variants: UnderlayConfig[] = [
+      { kind: "none" },
+      { kind: "edge-run", insetMm: 0.5, stitchLenMm: 2 },
+      { kind: "center-run", stitchLenMm: 2 },
+      { kind: "zigzag", spacingMm: 2, insetMm: 0.5 },
+      { kind: "fill", angleDeg: 90, spacingMm: 3 },
+    ];
+    for (const u of variants) {
+      const d: EmbroideryDesign = {
+        ...sample,
+        objects: [{ ...sample.objects[0], props: { ...sample.objects[0].props, underlay: u } }],
+      };
+      const r = deserializeDesign(JSON.parse(JSON.stringify(serializeDesign(d))), fabricResolver);
+      expect(r.objects[0].props.underlay).toEqual(u);
+    }
+  });
+
+  it("ラウンドトリップで pullCompPerSideMm が保持される", () => {
+    const s = serializeDesign(sample);
+    const r = deserializeDesign(JSON.parse(JSON.stringify(s)), fabricResolver);
+    expect(r.objects[0].props.pullCompPerSideMm).toEqual({ left: 0.1, right: 0.2 });
   });
 });

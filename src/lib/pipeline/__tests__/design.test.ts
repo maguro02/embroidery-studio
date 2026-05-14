@@ -1,6 +1,19 @@
 import { describe, it, expect } from "vitest";
-import { createDefaultObjectProps } from "../design";
-import type { ObjectProps } from "../types";
+import { createDefaultObjectProps, createEmptyDesign } from "../design";
+import type { ObjectProps, FabricProfile, EmbroideryDesign } from "../types";
+
+const stubFabric: FabricProfile = {
+  kind: "denim",
+  defaultDensityMm: 0.4,
+  pullCompPerWidth: 0.025,
+  minPullCompMm: 0.1,
+  defaultPushCompMm: 0,
+  underlayPolicy: {
+    satin: () => ({ kind: "none" }),
+    fill: () => ({ kind: "none" }),
+    run: () => ({ kind: "none" }),
+  },
+};
 
 describe("createDefaultObjectProps", () => {
   it("createDefaultObjectProps(\"run\") は angleDeg を含まない", () => {
@@ -26,5 +39,25 @@ describe("createDefaultObjectProps", () => {
     expect(a).not.toBe(b);
     a.densityMm = 999;
     expect(b.densityMm).not.toBe(999);
+  });
+});
+
+describe("createEmptyDesign", () => {
+  it("createEmptyDesign は objects=[] の Design を返す", () => {
+    const d = createEmptyDesign({ widthMm: 100, heightMm: 80, fabric: stubFabric }) satisfies EmbroideryDesign;
+    expect(d.widthMm).toBe(100);
+    expect(d.heightMm).toBe(80);
+    expect(d.objects).toEqual([]);
+  });
+
+  it("createEmptyDesign は渡した fabric をそのまま保持する", () => {
+    const d = createEmptyDesign({ widthMm: 50, heightMm: 50, fabric: stubFabric });
+    expect(d.fabric).toBe(stubFabric);
+  });
+
+  it("createEmptyDesign の戻り値の objects は呼び出しごとに独立", () => {
+    const d1 = createEmptyDesign({ widthMm: 1, heightMm: 1, fabric: stubFabric });
+    const d2 = createEmptyDesign({ widthMm: 1, heightMm: 1, fabric: stubFabric });
+    expect(d1.objects).not.toBe(d2.objects);
   });
 });

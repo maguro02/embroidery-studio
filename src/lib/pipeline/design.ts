@@ -1,4 +1,9 @@
-import type { ObjectKind, ObjectProps } from "./types";
+import type {
+  ObjectKind,
+  ObjectProps,
+  EmbroideryDesign,
+  FabricProfile,
+} from "./types";
 
 // 後続 PR (fabric.ts) で生地依存に差し替えやすいよう、既定値は名前付き定数に集約する。
 const DEFAULT_DENSITY_MM = 0.4;
@@ -18,4 +23,18 @@ export function createDefaultObjectProps(kind: ObjectKind): ObjectProps {
   }
   if (kind === "fill") return { ...base, angleDeg: FILL_ANGLE_DEG };
   return base; // run
+}
+
+/** objects が空の EmbroideryDesign を生成する。fabric は参照をそのまま保持する。 */
+export function createEmptyDesign(args: {
+  widthMm: number;
+  heightMm: number;
+  fabric: FabricProfile;
+}): EmbroideryDesign {
+  return {
+    widthMm: args.widthMm,
+    heightMm: args.heightMm,
+    fabric: args.fabric,
+    objects: [],
+  };
 }

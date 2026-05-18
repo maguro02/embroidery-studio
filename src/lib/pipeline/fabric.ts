@@ -51,3 +51,13 @@ export const FABRIC_PROFILES: Readonly<Record<FabricKind, FabricProfile>> = Obje
 export function getFabricProfile(kind: FabricKind): FabricProfile {
   return FABRIC_PROFILES[kind];
 }
+
+/**
+ * satin 幅依存の pull compensation を返す。
+ * 公式: max(profile.minPullCompMm, widthMm * profile.pullCompPerWidth)
+ * 負数 / NaN / 非有限値は minPullCompMm にクランプ。
+ */
+export function pullCompForWidth(profile: FabricProfile, widthMm: number): number {
+  const w = Number.isFinite(widthMm) && widthMm > 0 ? widthMm : 0;
+  return Math.max(profile.minPullCompMm, w * profile.pullCompPerWidth);
+}

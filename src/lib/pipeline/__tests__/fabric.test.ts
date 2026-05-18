@@ -114,3 +114,155 @@ describe("pullCompForWidth", () => {
     expect(result).toBeCloseTo(denim.minPullCompMm, 5);
   });
 });
+
+describe("underlayPolicy.satin (幅依存分岐)", () => {
+  // denim family (denim / twill / canvas / felt): center-run → edge-run → zigzag
+  it.each<[FabricKind]>([["denim"], ["twill"], ["canvas"], ["felt"]])(
+    "%s.satin(1.5) は center-run",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.satin(1.5).kind).toBe("center-run");
+    },
+  );
+  it.each<[FabricKind]>([["denim"], ["twill"], ["canvas"], ["felt"]])(
+    "%s.satin(3.0) は edge-run",
+    (kind) => {
+      const u = FABRIC_PROFILES[kind].underlayPolicy.satin(3.0);
+      expect(u.kind).toBe("edge-run");
+      if (u.kind === "edge-run") {
+        expect(u.insetMm).toBeGreaterThan(0);
+        expect(u.stitchLenMm).toBeGreaterThan(0);
+      }
+    },
+  );
+  it.each<[FabricKind]>([["denim"], ["twill"], ["canvas"], ["felt"]])(
+    "%s.satin(5.0) は zigzag",
+    (kind) => {
+      const u = FABRIC_PROFILES[kind].underlayPolicy.satin(5.0);
+      expect(u.kind).toBe("zigzag");
+    },
+  );
+
+  // knit family (knit-light / knit-heavy): center-run → edge-run → zigzag (強め)
+  it.each<[FabricKind]>([["knit-light"], ["knit-heavy"]])(
+    "%s.satin(1.5) は center-run",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.satin(1.5).kind).toBe("center-run");
+    },
+  );
+  it.each<[FabricKind]>([["knit-light"], ["knit-heavy"]])(
+    "%s.satin(3.0) は edge-run",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.satin(3.0).kind).toBe("edge-run");
+    },
+  );
+  it.each<[FabricKind, number]>([
+    ["knit-light", 1.0],
+    ["knit-heavy", 1.0],
+  ])("%s.satin(5.0) は zigzag で spacingMm = %f (denim より強め)", (kind, expectedSpacing) => {
+    const u = FABRIC_PROFILES[kind].underlayPolicy.satin(5.0);
+    expect(u.kind).toBe("zigzag");
+    if (u.kind === "zigzag") {
+      expect(u.spacingMm).toBeCloseTo(expectedSpacing, 5);
+      // denim の spacing (1.5) より小さい = 強い下打ち
+      const denimZig = FABRIC_PROFILES.denim.underlayPolicy.satin(5.0);
+      if (denimZig.kind === "zigzag") {
+        expect(u.spacingMm).toBeLessThan(denimZig.spacingMm);
+      }
+    }
+  });
+
+  // terry family (terry / fleece): 細幅から edge-run, 5mm で zigzag
+  it.each<[FabricKind]>([["terry"], ["fleece"]])(
+    "%s.satin(1.5) は edge-run (毛足が長いので細幅でも center を使わない)",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.satin(1.5).kind).toBe("edge-run");
+    },
+  );
+  it.each<[FabricKind]>([["terry"], ["fleece"]])(
+    "%s.satin(3.0) は edge-run",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.satin(3.0).kind).toBe("edge-run");
+    },
+  );
+  it.each<[FabricKind]>([["terry"], ["fleece"]])("%s.satin(5.0) は zigzag", (kind) => {
+    expect(FABRIC_PROFILES[kind].underlayPolicy.satin(5.0).kind).toBe("zigzag");
+  });
+
+  // leather: zigzag 禁止
+  it("leather.satin(1.5) は center-run", () => {
+    expect(FABRIC_PROFILES.leather.underlayPolicy.satin(1.5).kind).toBe("center-run");
+  });
+  it("leather.satin(3.0) は edge-run", () => {
+    expect(FABRIC_PROFILES.leather.underlayPolicy.satin(3.0).kind).toBe("edge-run");
+  });
+  it("leather.satin(5.0) は edge-run (zigzag に切り替えない — 針穴跡を最小化)", () => {
+    const u = FABRIC_PROFILES.leather.underlayPolicy.satin(5.0);
+    expect(u.kind).toBe("edge-run");
+    expect(u.kind).not.toBe("zigzag");
+  });
+
+  // silk: 軽め (細幅では none)
+  it("silk.satin(1.5) は none (軽め)", () => {
+    expect(FABRIC_PROFILES.silk.underlayPolicy.satin(1.5).kind).toBe("none");
+  });
+  it("silk.satin(3.0) は center-run", () => {
+    expect(FABRIC_PROFILES.silk.underlayPolicy.satin(3.0).kind).toBe("center-run");
+  });
+  it("silk.satin(5.0) は edge-run (zigzag は使わない)", () => {
+    const u = FABRIC_PROFILES.silk.underlayPolicy.satin(5.0);
+    expect(u.kind).toBe("edge-run");
+    expect(u.kind).not.toBe("zigzag");
+  });
+});
+
+describe("underlayPolicy.fill (生地別)", () => {
+  it("denim.fill() は kind=fill, spacingMm=3.0 (粗め)", () => {
+    const u = FABRIC_PROFILES.denim.underlayPolicy.fill();
+    expect(u.kind).toBe("fill");
+    if (u.kind === "fill") expect(u.spacingMm).toBeCloseTo(3.0, 5);
+  });
+
+  it("knit-light.fill() は kind=fill, spacingMm=2.5 (強め)", () => {
+    const u = FABRIC_PROFILES["knit-light"].underlayPolicy.fill();
+    expect(u.kind).toBe("fill");
+    if (u.kind === "fill") expect(u.spacingMm).toBeCloseTo(2.5, 5);
+  });
+
+  it("knit-heavy.fill() は kind=fill, spacingMm=2.2 (さらに強め)", () => {
+    const u = FABRIC_PROFILES["knit-heavy"].underlayPolicy.fill();
+    expect(u.kind).toBe("fill");
+    if (u.kind === "fill") expect(u.spacingMm).toBeCloseTo(2.2, 5);
+  });
+
+  it.each<[FabricKind]>([["terry"], ["fleece"]])(
+    "%s.fill() は kind=fill (tatami 相当: spacing を密に)",
+    (kind) => {
+      const u = FABRIC_PROFILES[kind].underlayPolicy.fill();
+      expect(u.kind).toBe("fill");
+      if (u.kind === "fill") {
+        // tatami 代用として denim より密にしてあること
+        expect(u.spacingMm).toBeLessThan(3.0);
+      }
+    },
+  );
+
+  it("leather.fill() は kind=edge-run (fill underlay は禁止)", () => {
+    expect(FABRIC_PROFILES.leather.underlayPolicy.fill().kind).toBe("edge-run");
+  });
+
+  it.each<[FabricKind]>([["silk"], ["felt"], ["canvas"], ["twill"]])(
+    "%s.fill() は kind=fill (中庸)",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.fill().kind).toBe("fill");
+    },
+  );
+});
+
+describe("underlayPolicy.run (生地別)", () => {
+  it.each<[FabricKind]>(ALL_KINDS.map((k) => [k] as [FabricKind]))(
+    "%s.run() は kind=none (Phase 1 では run 用 underlay は付けない)",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.run().kind).toBe("none");
+    },
+  );
+});

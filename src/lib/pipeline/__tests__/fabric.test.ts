@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { FABRIC_PROFILES } from "../fabric";
+import { FABRIC_PROFILES, getFabricProfile } from "../fabric";
 import type { FabricKind } from "../types";
 
 const EXPECTED: Record<FabricKind, { density: number; pullPerWidth: number; minPull: number }> = {
@@ -58,5 +58,21 @@ describe("FABRIC_PROFILES table", () => {
 
   it.each(ALL_KINDS)("FABRIC_PROFILES[%s].kind は自身のキーと一致する", (kind) => {
     expect(FABRIC_PROFILES[kind].kind).toBe(kind);
+  });
+});
+
+describe("getFabricProfile", () => {
+  it("getFabricProfile(\"denim\") は FABRIC_PROFILES.denim と参照同一", () => {
+    expect(getFabricProfile("denim")).toBe(FABRIC_PROFILES.denim);
+  });
+
+  it("getFabricProfile(\"knit-heavy\") は kind フィールドが \"knit-heavy\"", () => {
+    expect(getFabricProfile("knit-heavy").kind).toBe("knit-heavy");
+  });
+
+  it("getFabricProfile は型レベルで FabricKind 以外を受け付けない (compile-time check)", () => {
+    // @ts-expect-error — 未知の kind は型エラーになるべき (ランタイム挙動はテストしない)
+    getFabricProfile("unknown-fabric");
+    expect(true).toBe(true);
   });
 });

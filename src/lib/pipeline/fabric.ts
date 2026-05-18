@@ -46,3 +46,8 @@ export const FABRIC_PROFILES: Readonly<Record<FabricKind, FabricProfile>> = Obje
     ]),
   ) as Record<FabricKind, FabricProfile>,
 );
+
+/** FabricKind から対応する FabricProfile を返す純ルックアップ。 */
+export function getFabricProfile(kind: FabricKind): FabricProfile {
+  return FABRIC_PROFILES[kind];
+}

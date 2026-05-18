@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { FABRIC_PROFILES, getFabricProfile } from "../fabric";
+import { FABRIC_PROFILES, getFabricProfile, pullCompForWidth } from "../fabric";
 import type { FabricKind } from "../types";
 
 const EXPECTED: Record<FabricKind, { density: number; pullPerWidth: number; minPull: number }> = {
@@ -74,5 +74,43 @@ describe("getFabricProfile", () => {
     // @ts-expect-error — 未知の kind は型エラーになるべき (ランタイム挙動はテストしない)
     getFabricProfile("unknown-fabric");
     expect(true).toBe(true);
+  });
+});
+
+describe("pullCompForWidth", () => {
+  const denim = FABRIC_PROFILES.denim;
+  const knitHeavy = FABRIC_PROFILES["knit-heavy"];
+  const terry = FABRIC_PROFILES.terry;
+  const leather = FABRIC_PROFILES.leather;
+
+  it.each<[string, number, number]>([
+    ["denim, 0mm → minPull(0.10) で床打ち", 0, 0.10],
+    ["denim, 2mm → 2*0.025=0.05 < 0.10 で min 側", 2, 0.10],
+    ["denim, 4mm → 4*0.025=0.10 で境界", 4, 0.10],
+    ["denim, 5mm → 5*0.025=0.125 で per-width 側", 5, 0.125],
+  ])("pullCompForWidth(%s)", (_label, w, expected) => {
+    expect(pullCompForWidth(denim, w)).toBeCloseTo(expected, 5);
+  });
+
+  it("pullCompForWidth(knit-heavy, 4) = max(0.25, 4*0.075=0.30) = 0.30", () => {
+    expect(pullCompForWidth(knitHeavy, 4)).toBeCloseTo(0.30, 5);
+  });
+
+  it("pullCompForWidth(terry, 1) = max(0.30, 1*0.080=0.08) = 0.30 (min 側)", () => {
+    expect(pullCompForWidth(terry, 1)).toBeCloseTo(0.30, 5);
+  });
+
+  it("pullCompForWidth(leather, 10) = max(0.05, 10*0.015=0.15) = 0.15", () => {
+    expect(pullCompForWidth(leather, 10)).toBeCloseTo(0.15, 5);
+  });
+
+  it("pullCompForWidth(denim, 負数) は minPullCompMm にクランプ", () => {
+    expect(pullCompForWidth(denim, -5)).toBeCloseTo(denim.minPullCompMm, 5);
+  });
+
+  it("pullCompForWidth(denim, NaN) は NaN ではなく minPullCompMm を返す", () => {
+    const result = pullCompForWidth(denim, Number.NaN);
+    expect(Number.isFinite(result)).toBe(true);
+    expect(result).toBeCloseTo(denim.minPullCompMm, 5);
   });
 });

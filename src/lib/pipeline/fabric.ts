@@ -1,10 +1,7 @@
 import type { FabricKind, FabricProfile, UnderlayConfig, UnderlayPolicy } from "./types";
 
-/**
- * 生地ごとの基本パラメータ (Phase 計画書 3.3 のテーブル)。
- * underlayPolicy は本 PR の Cycle 4 で family ベースの実装に差し替える前提で、
- * Cycle 1 時点では stub (常に none を返す) を共有する。
- */
+// ---- 基本パラメータ (Phase 計画書 3.3) ----
+
 type FabricBaseValues = {
   defaultDensityMm: number;
   pullCompPerWidth: number;
@@ -25,85 +22,115 @@ const FABRIC_BASE_VALUES: Readonly<Record<FabricKind, FabricBaseValues>> = {
   felt:         { defaultDensityMm: 0.42, pullCompPerWidth: 0.020, minPullCompMm: 0.10, defaultPushCompMm: 0.05 },
 };
 
-// ---- underlay policy: family-based 実装 ----
-// NOTE (Phase 1 暫定): zigzag は実機では「zigzag + edge」の合成下打ちになる。
-// 本 PR では UnderlayConfig.kind="zigzag" 単独で代用し、Phase 2 で
-// composite underlay (例: { kind: "composite", parts: [...] }) に拡張する。
-// 同様に terry/fleece の tatami underlay は kind="fill" を密 spacing で代用する。
+// ---- underlay policy (family-based, table-driven) ----
+// NOTE (Phase 1 暫定):
+//   - zigzag は実機では「zigzag + edge」の合成下打ち。Phase 2 で composite
+//     underlay (例: { kind: "composite", parts: [...] }) に拡張するまでは
+//     UnderlayConfig.kind="zigzag" 単独で代用する。
+//   - terry/fleece の tatami underlay は kind="fill" + 密 spacing で代用する。
 
-function satinFor_denimFamily(widthMm: number): UnderlayConfig {
-  if (widthMm < 2) return { kind: "center-run", stitchLenMm: 2.0 };
-  if (widthMm <= 4) return { kind: "edge-run", insetMm: 0.3, stitchLenMm: 2.0 };
-  return { kind: "zigzag", spacingMm: 1.5, insetMm: 0.3 };
-}
+type SatinFamily = "twill" | "knit" | "terry" | "leather" | "silk";
+type FillFamily = "twill" | "knitLight" | "knitHeavy" | "terry" | "leather" | "silkFelt";
 
-function satinFor_knitFamily(widthMm: number): UnderlayConfig {
-  if (widthMm < 2) return { kind: "center-run", stitchLenMm: 1.8 };
-  if (widthMm <= 4) return { kind: "edge-run", insetMm: 0.35, stitchLenMm: 1.8 };
-  return { kind: "zigzag", spacingMm: 1.0, insetMm: 0.35 }; // denim より強め
-}
+const FABRIC_TO_SATIN_FAMILY: Readonly<Record<FabricKind, SatinFamily>> = {
+  denim: "twill", twill: "twill", canvas: "twill", felt: "twill",
+  "knit-light": "knit", "knit-heavy": "knit",
+  terry: "terry", fleece: "terry",
+  leather: "leather",
+  silk: "silk",
+};
 
-function satinFor_terryFamily(widthMm: number): UnderlayConfig {
-  if (widthMm <= 4) return { kind: "edge-run", insetMm: 0.4, stitchLenMm: 1.8 };
-  return { kind: "zigzag", spacingMm: 1.2, insetMm: 0.4 };
-}
+const FABRIC_TO_FILL_FAMILY: Readonly<Record<FabricKind, FillFamily>> = {
+  denim: "twill", twill: "twill", canvas: "twill",
+  felt: "silkFelt", silk: "silkFelt",
+  "knit-light": "knitLight",
+  "knit-heavy": "knitHeavy",
+  terry: "terry", fleece: "terry",
+  leather: "leather",
+};
 
-function satinFor_leather(widthMm: number): UnderlayConfig {
-  if (widthMm < 2) return { kind: "center-run", stitchLenMm: 2.5 };
-  return { kind: "edge-run", insetMm: 0.2, stitchLenMm: 2.5 }; // zigzag 不使用
-}
+// satin の三段分岐: widthMm < tier1Max → tier1, widthMm <= tier2Max → tier2, else tier3
+// (`<` と `<=` の非対称は元コードの境界挙動を維持するため意図的)
+type SatinTiers = {
+  tier1Max: number;
+  tier2Max: number;
+  tier1: () => UnderlayConfig;
+  tier2: () => UnderlayConfig;
+  tier3: () => UnderlayConfig;
+};
 
-function satinFor_silk(widthMm: number): UnderlayConfig {
-  if (widthMm < 2) return { kind: "none" };
-  if (widthMm <= 4) return { kind: "center-run", stitchLenMm: 2.2 };
-  return { kind: "edge-run", insetMm: 0.25, stitchLenMm: 2.2 };
-}
+const SATIN_TABLE: Readonly<Record<SatinFamily, SatinTiers>> = {
+  twill: {
+    tier1Max: 2,
+    tier2Max: 4,
+    tier1: () => ({ kind: "center-run", stitchLenMm: 2.0 }),
+    tier2: () => ({ kind: "edge-run", insetMm: 0.3, stitchLenMm: 2.0 }),
+    tier3: () => ({ kind: "zigzag", spacingMm: 1.5, insetMm: 0.3 }),
+  },
+  knit: {
+    tier1Max: 2,
+    tier2Max: 4,
+    tier1: () => ({ kind: "center-run", stitchLenMm: 1.8 }),
+    tier2: () => ({ kind: "edge-run", insetMm: 0.35, stitchLenMm: 1.8 }),
+    tier3: () => ({ kind: "zigzag", spacingMm: 1.0, insetMm: 0.35 }), // denim より強め
+  },
+  terry: {
+    // 毛足が長いので細幅でも center-run は使わない → tier1Max=0 で tier1 を実質無効化
+    tier1Max: 0,
+    tier2Max: 4,
+    tier1: () => ({ kind: "edge-run", insetMm: 0.4, stitchLenMm: 1.8 }),
+    tier2: () => ({ kind: "edge-run", insetMm: 0.4, stitchLenMm: 1.8 }),
+    tier3: () => ({ kind: "zigzag", spacingMm: 1.2, insetMm: 0.4 }),
+  },
+  leather: {
+    // zigzag 不使用 (針穴跡を最小化) → tier2Max=Infinity で tier3 を実質無効化
+    tier1Max: 2,
+    tier2Max: Number.POSITIVE_INFINITY,
+    tier1: () => ({ kind: "center-run", stitchLenMm: 2.5 }),
+    tier2: () => ({ kind: "edge-run", insetMm: 0.2, stitchLenMm: 2.5 }),
+    tier3: () => ({ kind: "edge-run", insetMm: 0.2, stitchLenMm: 2.5 }),
+  },
+  silk: {
+    // 軽め (細幅では下打ちなし)
+    tier1Max: 2,
+    tier2Max: 4,
+    tier1: () => ({ kind: "none" }),
+    tier2: () => ({ kind: "center-run", stitchLenMm: 2.2 }),
+    tier3: () => ({ kind: "edge-run", insetMm: 0.25, stitchLenMm: 2.2 }),
+  },
+};
 
 const FILL_ANGLE_DEG = 90; // underlay fill は top stitch と直交させる前提
 
-function fillFor_denimFamily(): UnderlayConfig {
-  return { kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 3.0 };
-}
-function fillFor_knitLight(): UnderlayConfig {
-  return { kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.5 };
-}
-function fillFor_knitHeavy(): UnderlayConfig {
-  return { kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.2 };
-}
-function fillFor_terryFamily(): UnderlayConfig {
-  // Phase 1 暫定: tatami の代用として kind="fill" を密 spacing で表現
-  return { kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.0 };
-}
-function fillFor_leather(): UnderlayConfig {
-  // 針穴跡を最小化するため fill underlay は禁止、edge-run で代用
-  return { kind: "edge-run", insetMm: 0.2, stitchLenMm: 2.5 };
-}
-function fillFor_silkFelt(): UnderlayConfig {
-  return { kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.8 }; // 中庸
+const FILL_TABLE: Readonly<Record<FillFamily, () => UnderlayConfig>> = {
+  twill: () => ({ kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 3.0 }), // 粗め
+  knitLight: () => ({ kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.5 }), // 強め
+  knitHeavy: () => ({ kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.2 }), // さらに強め
+  terry: () => ({ kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.0 }), // tatami 代用
+  leather: () => ({ kind: "edge-run", insetMm: 0.2, stitchLenMm: 2.5 }), // fill 禁止
+  silkFelt: () => ({ kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.8 }), // 中庸
+};
+
+function satinFor(family: SatinFamily, widthMm: number): UnderlayConfig {
+  const t = SATIN_TABLE[family];
+  if (widthMm < t.tier1Max) return t.tier1();
+  if (widthMm <= t.tier2Max) return t.tier2();
+  return t.tier3();
 }
 
 const runForAll = (): UnderlayConfig => ({ kind: "none" });
 
 function underlayPolicyFor(kind: FabricKind): UnderlayPolicy {
-  switch (kind) {
-    case "denim":
-    case "twill":
-    case "canvas":
-    case "felt":
-      return { satin: satinFor_denimFamily, fill: fillFor_denimFamily, run: runForAll };
-    case "knit-light":
-      return { satin: satinFor_knitFamily, fill: fillFor_knitLight, run: runForAll };
-    case "knit-heavy":
-      return { satin: satinFor_knitFamily, fill: fillFor_knitHeavy, run: runForAll };
-    case "terry":
-    case "fleece":
-      return { satin: satinFor_terryFamily, fill: fillFor_terryFamily, run: runForAll };
-    case "leather":
-      return { satin: satinFor_leather, fill: fillFor_leather, run: runForAll };
-    case "silk":
-      return { satin: satinFor_silk, fill: fillFor_silkFelt, run: runForAll };
-  }
+  const satinFamily = FABRIC_TO_SATIN_FAMILY[kind];
+  const fillFamily = FABRIC_TO_FILL_FAMILY[kind];
+  return {
+    satin: (widthMm: number) => satinFor(satinFamily, widthMm),
+    fill: FILL_TABLE[fillFamily],
+    run: runForAll,
+  };
 }
+
+// ---- FABRIC_PROFILES 構築 + 公開 API ----
 
 const FABRIC_KINDS = Object.keys(FABRIC_BASE_VALUES) as FabricKind[];
 

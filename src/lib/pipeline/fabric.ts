@@ -1,4 +1,4 @@
-import type { FabricKind, FabricProfile, UnderlayPolicy } from "./types";
+import type { FabricKind, FabricProfile, UnderlayConfig, UnderlayPolicy } from "./types";
 
 /**
  * 生地ごとの基本パラメータ (Phase 計画書 3.3 のテーブル)。
@@ -25,12 +25,85 @@ const FABRIC_BASE_VALUES: Readonly<Record<FabricKind, FabricBaseValues>> = {
   felt:         { defaultDensityMm: 0.42, pullCompPerWidth: 0.020, minPullCompMm: 0.10, defaultPushCompMm: 0.05 },
 };
 
-// Cycle 4 で family ベースの underlayPolicy 実装に置き換える。
-const stubUnderlayPolicy = (): UnderlayPolicy => ({
-  satin: () => ({ kind: "none" }),
-  fill: () => ({ kind: "none" }),
-  run: () => ({ kind: "none" }),
-});
+// ---- underlay policy: family-based 実装 ----
+// NOTE (Phase 1 暫定): zigzag は実機では「zigzag + edge」の合成下打ちになる。
+// 本 PR では UnderlayConfig.kind="zigzag" 単独で代用し、Phase 2 で
+// composite underlay (例: { kind: "composite", parts: [...] }) に拡張する。
+// 同様に terry/fleece の tatami underlay は kind="fill" を密 spacing で代用する。
+
+function satinFor_denimFamily(widthMm: number): UnderlayConfig {
+  if (widthMm < 2) return { kind: "center-run", stitchLenMm: 2.0 };
+  if (widthMm <= 4) return { kind: "edge-run", insetMm: 0.3, stitchLenMm: 2.0 };
+  return { kind: "zigzag", spacingMm: 1.5, insetMm: 0.3 };
+}
+
+function satinFor_knitFamily(widthMm: number): UnderlayConfig {
+  if (widthMm < 2) return { kind: "center-run", stitchLenMm: 1.8 };
+  if (widthMm <= 4) return { kind: "edge-run", insetMm: 0.35, stitchLenMm: 1.8 };
+  return { kind: "zigzag", spacingMm: 1.0, insetMm: 0.35 }; // denim より強め
+}
+
+function satinFor_terryFamily(widthMm: number): UnderlayConfig {
+  if (widthMm <= 4) return { kind: "edge-run", insetMm: 0.4, stitchLenMm: 1.8 };
+  return { kind: "zigzag", spacingMm: 1.2, insetMm: 0.4 };
+}
+
+function satinFor_leather(widthMm: number): UnderlayConfig {
+  if (widthMm < 2) return { kind: "center-run", stitchLenMm: 2.5 };
+  return { kind: "edge-run", insetMm: 0.2, stitchLenMm: 2.5 }; // zigzag 不使用
+}
+
+function satinFor_silk(widthMm: number): UnderlayConfig {
+  if (widthMm < 2) return { kind: "none" };
+  if (widthMm <= 4) return { kind: "center-run", stitchLenMm: 2.2 };
+  return { kind: "edge-run", insetMm: 0.25, stitchLenMm: 2.2 };
+}
+
+const FILL_ANGLE_DEG = 90; // underlay fill は top stitch と直交させる前提
+
+function fillFor_denimFamily(): UnderlayConfig {
+  return { kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 3.0 };
+}
+function fillFor_knitLight(): UnderlayConfig {
+  return { kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.5 };
+}
+function fillFor_knitHeavy(): UnderlayConfig {
+  return { kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.2 };
+}
+function fillFor_terryFamily(): UnderlayConfig {
+  // Phase 1 暫定: tatami の代用として kind="fill" を密 spacing で表現
+  return { kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.0 };
+}
+function fillFor_leather(): UnderlayConfig {
+  // 針穴跡を最小化するため fill underlay は禁止、edge-run で代用
+  return { kind: "edge-run", insetMm: 0.2, stitchLenMm: 2.5 };
+}
+function fillFor_silkFelt(): UnderlayConfig {
+  return { kind: "fill", angleDeg: FILL_ANGLE_DEG, spacingMm: 2.8 }; // 中庸
+}
+
+const runForAll = (): UnderlayConfig => ({ kind: "none" });
+
+function underlayPolicyFor(kind: FabricKind): UnderlayPolicy {
+  switch (kind) {
+    case "denim":
+    case "twill":
+    case "canvas":
+    case "felt":
+      return { satin: satinFor_denimFamily, fill: fillFor_denimFamily, run: runForAll };
+    case "knit-light":
+      return { satin: satinFor_knitFamily, fill: fillFor_knitLight, run: runForAll };
+    case "knit-heavy":
+      return { satin: satinFor_knitFamily, fill: fillFor_knitHeavy, run: runForAll };
+    case "terry":
+    case "fleece":
+      return { satin: satinFor_terryFamily, fill: fillFor_terryFamily, run: runForAll };
+    case "leather":
+      return { satin: satinFor_leather, fill: fillFor_leather, run: runForAll };
+    case "silk":
+      return { satin: satinFor_silk, fill: fillFor_silkFelt, run: runForAll };
+  }
+}
 
 const FABRIC_KINDS = Object.keys(FABRIC_BASE_VALUES) as FabricKind[];
 
@@ -41,7 +114,7 @@ export const FABRIC_PROFILES: Readonly<Record<FabricKind, FabricProfile>> = Obje
       {
         kind,
         ...FABRIC_BASE_VALUES[kind],
-        underlayPolicy: stubUnderlayPolicy(),
+        underlayPolicy: underlayPolicyFor(kind),
       },
     ]),
   ) as Record<FabricKind, FabricProfile>,

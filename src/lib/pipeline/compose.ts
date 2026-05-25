@@ -1,5 +1,6 @@
 import type { StitchPattern } from "./types";
 import type { ConversionConfig } from "./config";
+import { getFabricProfile } from "./fabric";
 import { warmupPyodide } from "./pyodide-loader";
 import { quantize, warmupOpenCV } from "./quantize";
 import { vectorize, type ColorRegion } from "./vectorize";
@@ -117,6 +118,7 @@ export async function runStitchAndWrite(
   onProgress?.({ stage: "stitch", percent: 75 });
   const pattern = generateStitches({
     regions: pre.regions,
+    fabric: getFabricProfile(config.fabric),
     widthMm: pre.widthMm,
     heightMm: pre.heightMm,
     widthPx: pre.widthPx,

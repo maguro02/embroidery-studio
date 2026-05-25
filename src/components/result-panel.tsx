@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import type { EmbroideryFormat } from "@/components/embroidery-studio";
+import type { EmbroideryFormat } from "@/lib/pipeline/config";
 
 type Result = {
   stitchCount: number;

@@ -64,12 +64,14 @@ export type FillStrategy =
  * 既存 `StitchInput` のうち renderer が必要とする「描画パラメータ」だけを残した型。
  * Phase 1 PR4 時点では `StitchInput` とほぼ等価。
  * Phase 1 PR6-8 で `ObjectProps` / `FabricProfile` ベースに置き換える予定。
+ *
+ * renderer の入力 obj は既に mm 座標 (shape は scaleShape 済み) なので px→mm 換算は不要。
+ * よって height 系の px 値は持たない (heightMm は出力 StitchPattern に残すため保持)。
  */
 export type RenderOptions = {
   widthMm: number;
   heightMm: number;
   widthPx: number;
-  heightPx: number;
   stitchDensityMm: number;
   satinMaxWidthMm: number;
   runMaxWidthMm?: number;
@@ -81,11 +83,9 @@ export type RenderOptions = {
   shapeStrategyMinAspect?: number;
 };
 
-/** 1 オブジェクトを描画するための文脈 (mmPerPx を事前計算しておく) */
+/** 1 オブジェクトを描画するための文脈。 */
 export type RenderContext = {
   opts: RenderOptions;
-  /** mm / pixel 換算係数 (= widthMm / widthPx)。renderer の入力 obj は既に mm 座標想定。 */
-  mmPerPx: number;
 };
 
 type Point = [number, number];
@@ -208,8 +208,7 @@ export function renderDesign(
   design: EmbroideryDesign,
   opts: RenderOptions,
 ): StitchPattern {
-  const mmPerPx = opts.widthMm / opts.widthPx;
-  const ctx: RenderContext = { opts, mmPerPx };
+  const ctx: RenderContext = { opts };
   const trimThresholdMm =
     opts.trimThresholdMm ?? DEFAULT_TRIM_THRESHOLD_MM;
 
@@ -291,7 +290,6 @@ export function generateStitches(input: StitchInput): StitchPattern {
     fillStrategy = "global-angle",
     shapeStrategyMinAspect = DEFAULT_SHAPE_STRATEGY_MIN_ASPECT,
   } = input;
-  void heightPx;
 
   const fabric = FABRIC_PROFILES.denim;
   const objects = buildObjects({
@@ -315,7 +313,6 @@ export function generateStitches(input: StitchInput): StitchPattern {
     widthMm,
     heightMm,
     widthPx,
-    heightPx,
     stitchDensityMm,
     satinMaxWidthMm,
     runMaxWidthMm,

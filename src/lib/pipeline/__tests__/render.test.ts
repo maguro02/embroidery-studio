@@ -28,12 +28,11 @@ function makeCtx(overrides: Partial<RenderContext["opts"]> = {}): RenderContext 
     widthMm: 100,
     heightMm: 100,
     widthPx: 100,
-    heightPx: 100,
     stitchDensityMm: 1,
     satinMaxWidthMm: 2,
     ...overrides,
   };
-  return { opts, mmPerPx: opts.widthMm / opts.widthPx };
+  return { opts };
 }
 
 const {
@@ -985,7 +984,6 @@ describe("renderDesign", () => {
     widthMm: 100,
     heightMm: 100,
     widthPx: 100,
-    heightPx: 100,
     stitchDensityMm: 1,
     satinMaxWidthMm: 2,
   };

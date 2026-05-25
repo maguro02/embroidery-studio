@@ -154,3 +154,45 @@ describe("buildObjects — kind 判定: satin / run", () => {
     expect(result[0].kind).toBe("fill");
   });
 });
+
+describe("buildObjects — 穴の保持", () => {
+  it("外形に穴があると shape.holes が mm 座標で保持される", () => {
+    const donut: ColorRegion = {
+      colorIndex: 0, rgb: [0, 0, 0], svgPath: "",
+      shapes: [{
+        outer: [[0, 0], [200, 0], [200, 200], [0, 200]], // 20mm 角
+        holes: [[[80, 80], [120, 80], [120, 120], [80, 120]]], // 中央 4mm 角の穴
+      }],
+      polygons: [],
+    };
+    const result = buildObjects({
+      regions: [donut],
+      widthMm: 20, heightMm: 20, widthPx: 200, heightPx: 200,
+      fabric: FABRIC_PROFILES.denim,
+      satinMaxWidthMm: 6,
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0].kind).toBe("fill"); // holes ありなので satin にはならない
+    expect(result[0].shape.holes).toEqual([
+      [[8, 8], [12, 8], [12, 12], [8, 12]],
+    ]);
+  });
+
+  it("3 点未満の holes はスキップされる", () => {
+    const region: ColorRegion = {
+      colorIndex: 0, rgb: [0, 0, 0], svgPath: "",
+      shapes: [{
+        outer: [[0, 0], [100, 0], [100, 100], [0, 100]],
+        holes: [[[10, 10], [20, 10]]], // 2 点のみ
+      }],
+      polygons: [],
+    };
+    const result = buildObjects({
+      regions: [region],
+      widthMm: 10, heightMm: 10, widthPx: 100, heightPx: 100,
+      fabric: FABRIC_PROFILES.denim,
+      satinMaxWidthMm: 6,
+    });
+    expect(result[0].shape.holes).toEqual([]);
+  });
+});

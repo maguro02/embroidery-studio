@@ -1,8 +1,5 @@
 import type { StitchPattern } from "./types";
-// TODO(Phase 1 PR5): ConversionConfig は pipeline ドメインの型でありながら現状は
-// UI 層 (`@/components/embroidery-studio`) から type-only import している。
-// PR5 で型定義そのものを `@/lib/pipeline/config` に物理移動して向きを反転する。
-import type { ConversionConfig } from "@/components/embroidery-studio";
+import type { ConversionConfig } from "./config";
 import { warmupPyodide } from "./pyodide-loader";
 import { quantize, warmupOpenCV } from "./quantize";
 import { vectorize, type ColorRegion } from "./vectorize";

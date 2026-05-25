@@ -9,7 +9,6 @@ import {
   type RenderContext,
   type RenderOptions,
 } from "../render";
-import { generateStitches as legacyGenerateStitches } from "../stitch";
 import { buildObjects } from "../build-objects";
 import { FABRIC_PROFILES } from "../fabric";
 import type {
@@ -877,7 +876,11 @@ describe("renderSatin", () => {
     }
   });
 
-  it("Stitch 数が既存 generateStitches を同入力で呼んだときの最初の block の satin 数と一致", () => {
+  // 20mm × 1mm の細長帯 (satin判定される) からの satin stitch 数を
+  // 凍結値 (golden) として固定する。
+  // 凍結時の入力: stitchDensityMm=1, satinMaxWidthMm=2, mmPerPx=1
+  // この値が変わったら satin renderer のロジックが変わったことを意味する。
+  it("固定入力 20mm×1mm の satin オブジェクトから 42 個の satin Stitch を生成する", () => {
     const outer: [number, number][] = [
       [0, 0],
       [20, 0],
@@ -893,27 +896,16 @@ describe("renderSatin", () => {
       props: DUMMY_PROPS,
       order: 0,
     };
-    const region: ColorRegion = {
+    const stitches = renderSatin(obj, makeCtx());
+    const satinStitches = stitches.filter((s) => s.kind === "satin");
+    expect(satinStitches).toHaveLength(42);
+    expect(stitches[0]).toEqual({ x: 0, y: 0, kind: "satin", colorIndex: 0 });
+    expect(stitches[stitches.length - 1]).toEqual({
+      x: 20,
+      y: 1,
+      kind: "satin",
       colorIndex: 0,
-      rgb: [0, 0, 0],
-      svgPath: "",
-      polygons: [],
-      shapes: [{ outer, holes: [] }],
-    };
-    const fromRenderer = renderSatin(obj, makeCtx());
-    const fromLegacy = generateStitches({
-      regions: [region],
-      widthMm: 100,
-      heightMm: 100,
-      widthPx: 100,
-      heightPx: 100,
-      stitchDensityMm: 1,
-      satinMaxWidthMm: 2,
     });
-    const satinCount = fromLegacy.blocks[0].stitches.filter(
-      (s) => s.kind === "satin",
-    ).length;
-    expect(fromRenderer.filter((s) => s.kind === "satin").length).toBe(satinCount);
   });
 });
 
@@ -1128,15 +1120,14 @@ describe("renderDesign", () => {
     expect(fills[fills.length - 1].x).toBeLessThanOrEqual(10);
   });
 
-  // NOTE (documentation-level guard):
-  //   PR4 完了時点で stitch.ts は `export * from "./render"` の shim になり、
-  //   `legacyGenerateStitches` と `generateStitches` は同一関数を指す。
-  //   ここでの比較は「2 経路で同じ実装を呼ぶ」自己参照になり、リファクタ等価性の
-  //   強い回帰検出にはならない。PR5 で golden 値ベースのテストに置き換える予定
-  //   (PR5 commit "test(pipeline): break self-referential render equivalence check")。
-  //   それまでは shim 経由でも例外が出ないことの smoke test として残す。
-  it("equivalence: 既存 stitch.ts の generateStitches と renderDesign(buildObjects) が完全一致", () => {
-    // 3 色を含む region 入力。fill / satin / run の全 kind を網羅。
+  // PR4 リファクタの動作不変性ガード:
+  // 過去 stitch.ts の monolithic generateStitches は PR3 cycle 6 で
+  // buildObjects 経由に書き換えられたため、現時点で「旧実装」との直接比較は
+  // 不可能 (現在の generateStitches も renderDesign を内部で呼ぶシム)。
+  // 代わりに、fill / satin / run の 3 kind を網羅する固定入力に対する
+  // renderDesign の出力を golden として凍結し、将来の変更で値が動いたら
+  // 検出できるようにする。値は PR4 リファクタ完了直後の renderDesign 出力。
+  it("golden: fill+satin+run を含む design を renderDesign に通すと、固定値の StitchPattern を返す", () => {
     const regions: ColorRegion[] = [
       {
         colorIndex: 0,
@@ -1206,7 +1197,6 @@ describe("renderDesign", () => {
       satinMaxWidthMm: 6,
     };
 
-    const legacy = legacyGenerateStitches({ ...sharedOpts, regions });
     const objects = buildObjects({
       ...sharedOpts,
       regions,
@@ -1218,24 +1208,122 @@ describe("renderDesign", () => {
       fabric: FABRIC_PROFILES.denim,
       objects,
     };
-    const fresh = renderDesign(design, sharedOpts);
+    const pattern = renderDesign(design, sharedOpts);
 
-    // pattern.widthMm/heightMm/totalStitches は両方同じ
-    expect(fresh.widthMm).toBe(legacy.widthMm);
-    expect(fresh.heightMm).toBe(legacy.heightMm);
-    expect(fresh.totalStitches).toBe(legacy.totalStitches);
-    // blocks 数も同じ
-    expect(fresh.blocks.length).toBe(legacy.blocks.length);
-    // 各 block の全 stitch が一致 (x, y, kind, colorIndex)
-    for (let i = 0; i < legacy.blocks.length; i++) {
-      const lb = legacy.blocks[i];
-      const fb = fresh.blocks[i];
-      expect(fb.colorIndex).toBe(lb.colorIndex);
-      expect(fb.rgb).toEqual(lb.rgb);
-      expect(fb.stitches.length).toBe(lb.stitches.length);
-      for (let j = 0; j < lb.stitches.length; j++) {
-        expect(fb.stitches[j]).toEqual(lb.stitches[j]);
-      }
-    }
+    expect(pattern.widthMm).toBe(50);
+    expect(pattern.heightMm).toBe(50);
+    expect(pattern.totalStitches).toBe(201);
+    expect(pattern.blocks).toHaveLength(3);
+
+    // block 0: fill (穴あり矩形)
+    const b0 = pattern.blocks[0];
+    expect(b0.colorIndex).toBe(0);
+    expect(b0.rgb).toEqual([255, 0, 0]);
+    expect(b0.stitches).toHaveLength(140);
+    expect(countByKind(b0.stitches)).toEqual({ fill: 97, jump: 42, stop: 1 });
+    expect(b0.stitches[0]).toEqual({ x: 10, y: 0, kind: "fill", colorIndex: 0 });
+    expect(b0.stitches[b0.stitches.length - 1].kind).toBe("stop");
+
+    // block 1: satin (細長帯)
+    const b1 = pattern.blocks[1];
+    expect(b1.colorIndex).toBe(1);
+    expect(b1.rgb).toEqual([0, 255, 0]);
+    expect(b1.stitches).toHaveLength(53);
+    expect(countByKind(b1.stitches)).toEqual({ satin: 52, stop: 1 });
+    expect(b1.stitches[0]).toEqual({ x: 15, y: 0, kind: "satin", colorIndex: 1 });
+
+    // block 2: run (極細線)
+    const b2 = pattern.blocks[2];
+    expect(b2.colorIndex).toBe(2);
+    expect(b2.rgb).toEqual([0, 0, 255]);
+    expect(b2.stitches).toHaveLength(52);
+    expect(countByKind(b2.stitches)).toEqual({ run: 52 });
+    expect(b2.stitches[0]).toEqual({ x: 0, y: 15, kind: "run", colorIndex: 2 });
+
+    // 末尾 block には stop を付けない (既存仕様)
+    expect(b2.stitches[b2.stitches.length - 1].kind).toBe("run");
+  });
+
+  // generateStitches (legacy 互換 API) も renderDesign 経由なので、
+  // 上の golden と同じ出力を返すことを確認する。
+  it("互換 API generateStitches も golden と同じ StitchPattern を返す", () => {
+    const regions: ColorRegion[] = [
+      {
+        colorIndex: 0,
+        rgb: [255, 0, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [0, 0],
+              [100, 0],
+              [100, 100],
+              [0, 100],
+            ],
+            holes: [
+              [
+                [40, 40],
+                [60, 40],
+                [60, 60],
+                [40, 60],
+              ],
+            ],
+          },
+        ],
+      },
+      {
+        colorIndex: 1,
+        rgb: [0, 255, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [150, 0],
+              [250, 0],
+              [250, 8],
+              [150, 8],
+            ],
+            holes: [],
+          },
+        ],
+      },
+      {
+        colorIndex: 2,
+        rgb: [0, 0, 255],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [0, 150],
+              [100, 150],
+              [100, 154],
+              [0, 154],
+            ],
+            holes: [],
+          },
+        ],
+      },
+    ];
+    const pattern = generateStitches({
+      regions,
+      widthMm: 50,
+      heightMm: 50,
+      widthPx: 500,
+      heightPx: 500,
+      stitchDensityMm: 0.4,
+      satinMaxWidthMm: 6,
+    });
+    expect(pattern.totalStitches).toBe(201);
+    expect(pattern.blocks.map((b) => b.stitches.length)).toEqual([140, 53, 52]);
   });
 });
+
+function countByKind(stitches: { kind: string }[]): Record<string, number> {
+  return stitches.reduce<Record<string, number>>((acc, s) => {
+    acc[s.kind] = (acc[s.kind] ?? 0) + 1;
+    return acc;
+  }, {});
+}

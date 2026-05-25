@@ -133,8 +133,3 @@ export function buildObjects(input: BuildObjectsInput): EmbroideryObject[] {
   }
   return result;
 }
-
-export const __internal = {
-  determineKind,
-  deriveDefaultProps,
-};

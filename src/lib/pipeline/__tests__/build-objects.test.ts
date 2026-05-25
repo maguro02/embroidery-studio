@@ -269,6 +269,13 @@ describe("buildObjects — props のデフォルト派生", () => {
 });
 
 describe("buildObjects — generateStitches との整合性", () => {
+  // NOTE (documentation-level regression guard):
+  //   Cycle 6 で generateStitches の kind 判定は determineKind() に委譲された。
+  //   よって本テストの両側は同一 determineKind の戻り値を 2 経路で観測しているに
+  //   過ぎず、判定ロジックが恒等的に壊れた場合 (例: 常に "fill" を返す) しか
+  //   failure を検出できない。
+  //   将来 stitch.ts 内に独自の kind 判定を再導入するリファクタが発生した場合の
+  //   ガードとして残し、それ以外の用途では強い回帰検出は期待しない。
   it("同じ region 入力から buildObjects が返す kind 構成が、generateStitches の stitch.kind 構成に含まれる", () => {
     // mmPerPx = 50/500 = 0.1
     // Region 0: 100×100 px = 10×10 mm 正方形 → fill

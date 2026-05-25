@@ -14,9 +14,10 @@ import {
   type PipelineProgress,
   type PrepipelineResult,
 } from "@/lib/pipeline";
+import { makeDefaultConfig, type FabricOverrideKey } from "@/lib/pipeline/config";
 import { warmupPyodide } from "@/lib/pipeline/pyodide-loader";
 import { warmupOpenCV } from "@/lib/pipeline/quantize";
-import type { StitchPattern } from "@/lib/pipeline/types";
+import type { FabricKind, StitchPattern } from "@/lib/pipeline/types";
 
 export type { FillStrategy };
 
@@ -24,6 +25,7 @@ export type EmbroideryFormat = "dst" | "pes" | "jef" | "exp" | "vp3";
 
 export type ConversionConfig = {
   format: EmbroideryFormat;
+  fabric: FabricKind;
   widthMm: number;
   colorCount: number;
   stitchDensity: number;
@@ -44,20 +46,11 @@ export type ConversionConfig = {
   fillAngleByColor: Record<number, number>;
   /** shape 形状ベースで fill 方向を決めるかどうか。 */
   fillStrategy: FillStrategy;
+  /** ユーザーが明示的に上書きした fabric-driven フィールドの集合。 */
+  overrides: Partial<Record<FabricOverrideKey, true>>;
 };
 
-export const defaultConfig: ConversionConfig = {
-  format: "dst",
-  widthMm: 100,
-  colorCount: 6,
-  stitchDensity: 0.4,
-  satinMaxWidthMm: 5,
-  smoothing: 2,
-  boundaryDilatePx: 1,
-  fillAngleDeg: 45,
-  fillAngleByColor: {},
-  fillStrategy: "global-angle",
-};
+export const defaultConfig: ConversionConfig = makeDefaultConfig("denim");
 
 type StitchResult = {
   stitchCount: number;

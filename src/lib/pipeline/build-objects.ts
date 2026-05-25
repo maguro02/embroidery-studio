@@ -1,5 +1,9 @@
 import type { ColorRegion } from "./vectorize";
-import type { EmbroideryObject, FabricProfile } from "./types";
+import type {
+  EmbroideryObject,
+  FabricProfile,
+  Shape,
+} from "./types";
 
 export type BuildObjectsInput = {
   regions: ColorRegion[];
@@ -16,18 +20,39 @@ export type BuildObjectsInput = {
   satinMinAspectRatio?: number;
 };
 
+function scaleShape(shapePx: Shape, mmPerPx: number): Shape {
+  return {
+    outer: shapePx.outer.map(([x, y]) => [x * mmPerPx, y * mmPerPx]),
+    holes: [], // Cycle 4 で holes の変換を実装
+  };
+}
+
 /**
  * ColorRegion[] から EmbroideryObject[] を構築する。
  * order は region.colorIndex 昇順 × region 内 shape 出現順で 0-based 連番。
  */
 export function buildObjects(input: BuildObjectsInput): EmbroideryObject[] {
   const result: EmbroideryObject[] = [];
+  const mmPerPx = input.widthMm / input.widthPx;
   const sorted = [...input.regions].sort((a, b) => a.colorIndex - b.colorIndex);
+  let order = 0;
   for (const region of sorted) {
-    for (const shapePx of region.shapes) {
-      if (shapePx.outer.length < 3) continue;
-      // TODO Cycle 2 以降で EmbroideryObject を組み立てる
-    }
+    region.shapes.forEach((shapePx, shapeIndex) => {
+      if (shapePx.outer.length < 3) return;
+      const shapeMm = scaleShape(shapePx, mmPerPx);
+      result.push({
+        id: `${region.colorIndex}-${shapeIndex}`,
+        kind: "fill", // Cycle 3 で run/satin/fill 判定に置き換え
+        colorIndex: region.colorIndex,
+        rgb: region.rgb,
+        shape: shapeMm,
+        props: {
+          densityMm: input.fabric.defaultDensityMm,
+          maxStitchMm: 7,
+        },
+        order: order++,
+      });
+    });
   }
   return result;
 }

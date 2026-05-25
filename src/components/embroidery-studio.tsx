@@ -90,6 +90,10 @@ export function EmbroideryStudio() {
   const onConfigChange = (next: ConversionConfig) => {
     // quantize/vectorize の入力が変わったら中間キャッシュを無効化する。
     // (fillAngleDeg / fillAngleByColor / format は影響しないのでキャッシュ維持)
+    // TODO(phase 1 後続): fabric が compose/render に渡るようになったら
+    //   `next.fabric !== config.fabric` も無効化条件に加えること。
+    //   現状 fabric は stitchDensity の派生にだけ影響し、stitchDensity は
+    //   stitch+write 段でのみ参照されるため prepipeline キャッシュは保持できる。
     const invalidates =
       next.widthMm !== config.widthMm ||
       next.colorCount !== config.colorCount ||

@@ -1128,6 +1128,13 @@ describe("renderDesign", () => {
     expect(fills[fills.length - 1].x).toBeLessThanOrEqual(10);
   });
 
+  // NOTE (documentation-level guard):
+  //   PR4 完了時点で stitch.ts は `export * from "./render"` の shim になり、
+  //   `legacyGenerateStitches` と `generateStitches` は同一関数を指す。
+  //   ここでの比較は「2 経路で同じ実装を呼ぶ」自己参照になり、リファクタ等価性の
+  //   強い回帰検出にはならない。PR5 で golden 値ベースのテストに置き換える予定
+  //   (PR5 commit "test(pipeline): break self-referential render equivalence check")。
+  //   それまでは shim 経由でも例外が出ないことの smoke test として残す。
   it("equivalence: 既存 stitch.ts の generateStitches と renderDesign(buildObjects) が完全一致", () => {
     // 3 色を含む region 入力。fill / satin / run の全 kind を網羅。
     const regions: ColorRegion[] = [

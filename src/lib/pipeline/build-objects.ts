@@ -37,7 +37,11 @@ function scaleShape(shapePx: Shape, mmPerPx: number): Shape {
   };
 }
 
-function determineKind(
+/**
+ * shape の幾何特徴 (shortSide / aspectRatio / holes) から ObjectKind を決定する。
+ * stitch.ts の generateStitches からも import される (Phase 1 PR3 Cycle 6)。
+ */
+export function determineKind(
   shape: Shape,
   runMaxWidthMm: number,
   satinMaxWidthMm: number,

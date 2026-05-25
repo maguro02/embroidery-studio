@@ -7,6 +7,9 @@ import type {
 } from "./types";
 import type { ColorRegion } from "./vectorize";
 import { analyzeShape, computeAspectRatio } from "./geometry";
+import { determineKind } from "./build-objects";
+
+const SATIN_MIN_ASPECT_RATIO = 4;
 
 export type StitchInput = {
   regions: ColorRegion[];
@@ -100,10 +103,19 @@ export function generateStitches(input: StitchInput): StitchPattern {
 
       const { shortSide, longAxis, center } = analyzeShape(outerMm);
       const aspectRatio = computeAspectRatio(outerMm, longAxis, center);
+      // kind 判定は build-objects.ts と共有する (Phase 1 PR3 Cycle 6)。
+      // analyzeShape は二度走るが、renderer 側は longAxis / center / aspectRatio を
+      // 必要とするため、ここでは結果を別途保持して再利用する。
+      const { kind: objectKind } = determineKind(
+        shapeMm,
+        runMaxWidthMm,
+        satinMaxWidthMm,
+        SATIN_MIN_ASPECT_RATIO,
+      );
 
       // どの kind でも shape 境界では直線描画を切るため必ず jump を強制する。
       // block 内の最初の stitch では prev=undefined のため自動的に jump はスキップされる。
-      if (shortSide < runMaxWidthMm) {
+      if (objectKind === "run") {
         const pts = resamplePolyline(outerMm, stitchDensityMm);
         if (pts.length === 0) continue;
         appendStitchesWithJumps(
@@ -115,7 +127,7 @@ export function generateStitches(input: StitchInput): StitchPattern {
           trimThresholdMm,
           true,
         );
-      } else if (!hasHoles && shortSide < satinMaxWidthMm && aspectRatio > 4) {
+      } else if (objectKind === "satin") {
         const pts = satinStitches(outerMm, stitchDensityMm, longAxis, center);
         if (pts.length === 0) continue;
         appendStitchesWithJumps(

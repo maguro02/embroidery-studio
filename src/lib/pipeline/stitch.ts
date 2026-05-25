@@ -6,6 +6,7 @@ import type {
   Shape,
 } from "./types";
 import type { ColorRegion } from "./vectorize";
+import { analyzeShape, computeAspectRatio } from "./geometry";
 
 export type StitchInput = {
   regions: ColorRegion[];
@@ -265,95 +266,8 @@ function distance(x1: number, y1: number, x2: number, y2: number): number {
   return Math.hypot(x2 - x1, y2 - y1);
 }
 
-/** PCA で主成分軸を求め、ポリゴンの短辺長を返す */
-function analyzeShape(polygon: Polygon): {
-  shortSide: number;
-  longAxis: Point;
-  center: Point;
-} {
-  const n = polygon.length;
-  let cx = 0;
-  let cy = 0;
-  for (const [x, y] of polygon) {
-    cx += x;
-    cy += y;
-  }
-  cx /= n;
-  cy /= n;
-  let sxx = 0;
-  let syy = 0;
-  let sxy = 0;
-  for (const [x, y] of polygon) {
-    const dx = x - cx;
-    const dy = y - cy;
-    sxx += dx * dx;
-    syy += dy * dy;
-    sxy += dx * dy;
-  }
-  sxx /= n;
-  syy /= n;
-  sxy /= n;
-
-  const tr = sxx + syy;
-  const det = sxx * syy - sxy * sxy;
-  const disc = Math.max(0, (tr * tr) / 4 - det);
-  const sqd = Math.sqrt(disc);
-  const lambda1 = tr / 2 + sqd;
-  const lambda2 = tr / 2 - sqd;
-
-  let vx: number;
-  let vy: number;
-  if (Math.abs(sxy) > 1e-9) {
-    vx = lambda1 - syy;
-    vy = sxy;
-  } else if (sxx >= syy) {
-    vx = 1;
-    vy = 0;
-  } else {
-    vx = 0;
-    vy = 1;
-  }
-  const mag = Math.hypot(vx, vy) || 1;
-  const longAxis: Point = [vx / mag, vy / mag];
-
-  let minS = Infinity;
-  let maxS = -Infinity;
-  const shortAxis: Point = [-longAxis[1], longAxis[0]];
-  for (const [x, y] of polygon) {
-    const s = (x - cx) * shortAxis[0] + (y - cy) * shortAxis[1];
-    if (s < minS) minS = s;
-    if (s > maxS) maxS = s;
-  }
-  const shortSide = maxS - minS;
-  void lambda2;
-  return { shortSide, longAxis, center: [cx, cy] };
-}
-
-function computeAspectRatio(
-  polygon: Polygon,
-  longAxis: Point,
-  center: Point,
-): number {
-  let minL = Infinity;
-  let maxL = -Infinity;
-  let minS = Infinity;
-  let maxS = -Infinity;
-  const shortAxis: Point = [-longAxis[1], longAxis[0]];
-  for (const [x, y] of polygon) {
-    const dx = x - center[0];
-    const dy = y - center[1];
-    const l = dx * longAxis[0] + dy * longAxis[1];
-    const s = dx * shortAxis[0] + dy * shortAxis[1];
-    if (l < minL) minL = l;
-    if (l > maxL) maxL = l;
-    if (s < minS) minS = s;
-    if (s > maxS) maxS = s;
-  }
-  const longSide = maxL - minL;
-  const shortSide = maxS - minS;
-  if (shortSide < 1e-9) return Infinity;
-  return longSide / shortSide;
-}
+// analyzeShape / computeAspectRatio は ./geometry に移動済み。
+// __internal 経由でテストから参照されているため、re-export を維持する。
 
 export function resamplePolyline(polyline: Polygon, densityMm: number): Point[] {
   if (polyline.length === 0) return [];

@@ -76,36 +76,62 @@ function deriveDefaultProps(
   return props;
 }
 
+type BuildOptions = {
+  mmPerPx: number;
+  runMaxWidthMm: number;
+  satinMaxWidthMm: number;
+  satinMinAspectRatio: number;
+  fabric: FabricProfile;
+};
+
+/** 単一 shape から EmbroideryObject を 1 つ構築する。outer < 3 の場合は null。 */
+function buildObjectForShape(
+  region: ColorRegion,
+  shapeIndex: number,
+  shapePx: Shape,
+  opts: BuildOptions,
+  order: number,
+): EmbroideryObject | null {
+  if (shapePx.outer.length < 3) return null;
+  const shapeMm = scaleShape(shapePx, opts.mmPerPx);
+  const { kind, shortSide } = determineKind(
+    shapeMm,
+    opts.runMaxWidthMm,
+    opts.satinMaxWidthMm,
+    opts.satinMinAspectRatio,
+  );
+  return {
+    id: `${region.colorIndex}-${shapeIndex}`,
+    kind,
+    colorIndex: region.colorIndex,
+    rgb: region.rgb,
+    shape: shapeMm,
+    props: deriveDefaultProps(kind, shortSide, opts.fabric),
+    order,
+  };
+}
+
 /**
  * ColorRegion[] から EmbroideryObject[] を構築する。
  * order は region.colorIndex 昇順 × region 内 shape 出現順で 0-based 連番。
  */
 export function buildObjects(input: BuildObjectsInput): EmbroideryObject[] {
+  const opts: BuildOptions = {
+    mmPerPx: input.widthMm / input.widthPx,
+    runMaxWidthMm: input.runMaxWidthMm ?? DEFAULT_RUN_MAX_WIDTH_MM,
+    satinMaxWidthMm: input.satinMaxWidthMm,
+    satinMinAspectRatio: input.satinMinAspectRatio ?? DEFAULT_SATIN_MIN_ASPECT_RATIO,
+    fabric: input.fabric,
+  };
   const result: EmbroideryObject[] = [];
-  const mmPerPx = input.widthMm / input.widthPx;
-  const runMaxWidthMm = input.runMaxWidthMm ?? DEFAULT_RUN_MAX_WIDTH_MM;
-  const satinMinAspectRatio = input.satinMinAspectRatio ?? DEFAULT_SATIN_MIN_ASPECT_RATIO;
   const sorted = [...input.regions].sort((a, b) => a.colorIndex - b.colorIndex);
   let order = 0;
   for (const region of sorted) {
     region.shapes.forEach((shapePx, shapeIndex) => {
-      if (shapePx.outer.length < 3) return;
-      const shapeMm = scaleShape(shapePx, mmPerPx);
-      const { kind, shortSide } = determineKind(
-        shapeMm,
-        runMaxWidthMm,
-        input.satinMaxWidthMm,
-        satinMinAspectRatio,
-      );
-      result.push({
-        id: `${region.colorIndex}-${shapeIndex}`,
-        kind,
-        colorIndex: region.colorIndex,
-        rgb: region.rgb,
-        shape: shapeMm,
-        props: deriveDefaultProps(kind, shortSide, input.fabric),
-        order: order++,
-      });
+      const obj = buildObjectForShape(region, shapeIndex, shapePx, opts, order);
+      if (obj === null) return;
+      result.push(obj);
+      order++;
     });
   }
   return result;

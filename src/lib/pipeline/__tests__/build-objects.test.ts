@@ -313,6 +313,7 @@ describe("buildObjects — generateStitches との整合性", () => {
       // generateStitches は legacy StitchInput を受け取るため heightMm/heightPx を補う
       heightMm: 50, heightPx: 500,
       regions,
+      fabric: FABRIC_PROFILES.denim,
       stitchDensityMm: 0.4,
     });
 

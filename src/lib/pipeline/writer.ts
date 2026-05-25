@@ -1,5 +1,5 @@
 import type { StitchPattern } from "./types";
-import type { EmbroideryFormat } from "@/components/embroidery-studio";
+import type { EmbroideryFormat } from "./config";
 import { writeEmbroideryViaWorker } from "./pyodide-worker";
 
 export type WriteInput = {

@@ -454,6 +454,7 @@ describe("generateStitches with fillStrategy", () => {
     ];
     const pattern = generateStitches({
       regions,
+      fabric: FABRIC_PROFILES.denim,
       widthMm: 50,
       heightMm: 50,
       widthPx: 50,
@@ -491,6 +492,7 @@ describe("generateStitches with fillStrategy", () => {
     ];
     const pattern = generateStitches({
       regions,
+      fabric: FABRIC_PROFILES.denim,
       widthMm: 50,
       heightMm: 50,
       widthPx: 50,
@@ -529,6 +531,7 @@ describe("generateStitches with fillStrategy", () => {
     ];
     const pattern = generateStitches({
       regions,
+      fabric: FABRIC_PROFILES.denim,
       widthMm: 50,
       heightMm: 50,
       widthPx: 50,
@@ -592,6 +595,7 @@ describe("generateStitches integration - jump-after-init bug", () => {
     ];
     const pattern = generateStitches({
       regions,
+      fabric: FABRIC_PROFILES.denim,
       widthMm: 300,
       heightMm: 300,
       widthPx: 300,
@@ -641,6 +645,7 @@ describe("generateStitches integration - jump-after-init bug", () => {
     ];
     const pattern = generateStitches({
       regions,
+      fabric: FABRIC_PROFILES.denim,
       widthMm: 200,
       heightMm: 200,
       widthPx: 200,
@@ -686,6 +691,7 @@ describe("generateStitches integration - jump-after-init bug", () => {
     ];
     const pattern = generateStitches({
       regions,
+      fabric: FABRIC_PROFILES.denim,
       widthMm: 200,
       heightMm: 200,
       widthPx: 200,
@@ -729,6 +735,7 @@ describe("generateStitches integration - jump-after-init bug", () => {
     ];
     const pattern = generateStitches({
       regions,
+      fabric: FABRIC_PROFILES.denim,
       widthMm: 20,
       heightMm: 20,
       widthPx: 20,
@@ -784,6 +791,7 @@ describe("generateStitches integration - jump-after-init bug", () => {
     ];
     const pattern = generateStitches({
       regions,
+      fabric: FABRIC_PROFILES.denim,
       widthMm: 100,
       heightMm: 100,
       widthPx: 100,
@@ -1309,6 +1317,7 @@ describe("renderDesign", () => {
     ];
     const pattern = generateStitches({
       regions,
+      fabric: FABRIC_PROFILES.denim,
       widthMm: 50,
       heightMm: 50,
       widthPx: 500,
@@ -1318,6 +1327,59 @@ describe("renderDesign", () => {
     });
     expect(pattern.totalStitches).toBe(201);
     expect(pattern.blocks.map((b) => b.stitches.length)).toEqual([140, 53, 52]);
+  });
+});
+
+describe("Phase 1 受け入れ条件: fabric が render まで届く", () => {
+  // 10mm 角の fill 1 つ。stitchDensityMm が scanline 間隔を直接決めるので、
+  // makeDefaultConfig 経由の stitchDensity が fabric ごとに変わることをここで観測する。
+  const regions: ColorRegion[] = [
+    {
+      colorIndex: 0,
+      rgb: [255, 0, 0],
+      svgPath: "",
+      polygons: [],
+      shapes: [{ outer: [[0, 0], [100, 0], [100, 100], [0, 100]], holes: [] }],
+    },
+  ];
+  const common = {
+    regions,
+    widthMm: 10,
+    heightMm: 10,
+    widthPx: 100,
+    heightPx: 100,
+    satinMaxWidthMm: 6,
+  } as const;
+
+  it("denim プロファイルを渡したパターンと terry プロファイルを渡したパターンで stitch 数が異なる (fabric が compose→render まで届いている証拠)", () => {
+    // makeDefaultConfig が defaultDensityMm をそのまま stitchDensity にしているため、
+    // denim (0.40) は terry (0.42) より stitch 間隔が小さい = stitch 数は多い。
+    const denimPattern = generateStitches({
+      ...common,
+      fabric: FABRIC_PROFILES.denim,
+      stitchDensityMm: FABRIC_PROFILES.denim.defaultDensityMm,
+    });
+    const terryPattern = generateStitches({
+      ...common,
+      fabric: FABRIC_PROFILES.terry,
+      stitchDensityMm: FABRIC_PROFILES.terry.defaultDensityMm,
+    });
+    expect(denimPattern.totalStitches).not.toBe(terryPattern.totalStitches);
+    // density (=隣接走り間距離) が小さい denim の方が stitch 数が多い
+    expect(denimPattern.totalStitches).toBeGreaterThan(terryPattern.totalStitches);
+  });
+
+  it("EmbroideryObject.props.densityMm が fabric.defaultDensityMm を反映する (buildObjects 経由)", () => {
+    // 直接の生成物 (props) で fabric が反映されているかも確認
+    const objects = buildObjects({
+      regions,
+      widthMm: 10,
+      widthPx: 100,
+      satinMaxWidthMm: 6,
+      fabric: FABRIC_PROFILES.terry,
+    });
+    expect(objects[0].props.densityMm).toBeCloseTo(FABRIC_PROFILES.terry.defaultDensityMm);
+    expect(objects[0].props.pushCompMm).toBe(FABRIC_PROFILES.terry.defaultPushCompMm);
   });
 });
 

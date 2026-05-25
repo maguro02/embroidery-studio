@@ -10,22 +10,16 @@ import { ColorAngleEditor } from "@/components/color-angle-editor";
 import {
   runPrepipeline,
   runStitchAndWrite,
-  type FillStrategy,
   type PipelineProgress,
   type PrepipelineResult,
 } from "@/lib/pipeline";
 import {
   makeDefaultConfig,
   type ConversionConfig,
-  type EmbroideryFormat,
 } from "@/lib/pipeline/config";
 import { warmupPyodide } from "@/lib/pipeline/pyodide-loader";
 import { warmupOpenCV } from "@/lib/pipeline/quantize";
 import type { StitchPattern } from "@/lib/pipeline/types";
-
-// 既存の他コンポーネント (conversion-settings / result-panel / writer など) は
-// この再 export を経由して型を取得する。実定義は @/lib/pipeline/config に移行済み。
-export type { FillStrategy, ConversionConfig, EmbroideryFormat };
 
 export const defaultConfig: ConversionConfig = makeDefaultConfig("denim");
 
@@ -66,11 +60,9 @@ export function EmbroideryStudio() {
 
   const onConfigChange = (next: ConversionConfig) => {
     // quantize/vectorize の入力が変わったら中間キャッシュを無効化する。
-    // (fillAngleDeg / fillAngleByColor / format は影響しないのでキャッシュ維持)
-    // TODO(phase 1 後続): fabric が compose/render に渡るようになったら
-    //   `next.fabric !== config.fabric` も無効化条件に加えること。
-    //   現状 fabric は stitchDensity の派生にだけ影響し、stitchDensity は
-    //   stitch+write 段でのみ参照されるため prepipeline キャッシュは保持できる。
+    // (fillAngleDeg / fillAngleByColor / format / fabric は stitch+write 段でのみ
+    // 参照されるためキャッシュ維持。fabric は config.stitchDensity の派生と
+    // generateStitches の入力に流れるが、いずれも prepipeline 出力には依らない。)
     const invalidates =
       next.widthMm !== config.widthMm ||
       next.colorCount !== config.colorCount ||

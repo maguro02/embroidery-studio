@@ -7,7 +7,7 @@
  */
 
 import type { StitchPattern } from "./types";
-import type { EmbroideryFormat } from "@/components/embroidery-studio";
+import type { EmbroideryFormat } from "./config";
 
 const WORKER_URL = "/pyodide.worker.js";
 const INIT_TIMEOUT_MS = 120_000;

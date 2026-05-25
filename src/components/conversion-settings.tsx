@@ -12,12 +12,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Loader2, Sparkles } from "lucide-react";
-import type {
-  ConversionConfig,
-  EmbroideryFormat,
-  FillStrategy,
-} from "@/components/embroidery-studio";
-import { applyFabricDefaults } from "@/lib/pipeline/config";
+import type { FillStrategy } from "@/lib/pipeline/render";
+import {
+  applyFabricDefaults,
+  type ConversionConfig,
+  type EmbroideryFormat,
+} from "@/lib/pipeline/config";
 import type { FabricKind } from "@/lib/pipeline/types";
 
 type Props = {

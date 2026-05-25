@@ -6,11 +6,11 @@ import type {
   Shape,
   EmbroideryObject,
   EmbroideryDesign,
+  FabricProfile,
 } from "./types";
 import type { ColorRegion } from "./vectorize";
 import { analyzeShape, computeAspectRatio } from "./geometry";
 import { buildObjects } from "./build-objects";
-import { FABRIC_PROFILES } from "./fabric";
 
 const SATIN_MIN_ASPECT_RATIO = 4;
 const DEFAULT_MAX_STITCH_MM = 7;
@@ -21,6 +21,8 @@ const DEFAULT_SHAPE_STRATEGY_MIN_ASPECT = 1.5;
 
 export type StitchInput = {
   regions: ColorRegion[];
+  /** 生地プロファイル。density・underlay・pull comp の派生元として buildObjects / renderDesign に流す。 */
+  fabric: FabricProfile;
   widthMm: number;
   heightMm: number;
   widthPx: number;
@@ -269,13 +271,16 @@ export function renderDesign(
 
 /**
  * 旧 API。内部で `buildObjects` → `renderDesign` に委譲する。
- * PR4 完了時点では fabric は固定 (denim) で、props 経由のレンダリングはまだ
- * 行わない。RenderOptions が描画パラメータを全て持っているため、fabric の
- * 中身は実出力に影響しない。
+ * fabric は呼び出し側 (`compose.ts`) で `config.fabric` から導出して渡す。
+ * 現状の renderDesign は RenderOptions の数値パラメータで描画するため fabric の
+ * 中身は `buildObjects` 経由の `EmbroideryObject.props` (underlay 等) にのみ影響するが、
+ * Phase 2 で underlay rendering が入った時点で fabric が rendering 側にも届くよう
+ * StitchInput.fabric を経由させておく。
  */
 export function generateStitches(input: StitchInput): StitchPattern {
   const {
     regions,
+    fabric,
     widthMm,
     heightMm,
     widthPx,
@@ -291,7 +296,6 @@ export function generateStitches(input: StitchInput): StitchPattern {
     shapeStrategyMinAspect = DEFAULT_SHAPE_STRATEGY_MIN_ASPECT,
   } = input;
 
-  const fabric = FABRIC_PROFILES.denim;
   const objects = buildObjects({
     regions,
     widthMm,

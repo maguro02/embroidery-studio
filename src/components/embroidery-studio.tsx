@@ -14,41 +14,18 @@ import {
   type PipelineProgress,
   type PrepipelineResult,
 } from "@/lib/pipeline";
-import { makeDefaultConfig, type FabricOverrideKey } from "@/lib/pipeline/config";
+import {
+  makeDefaultConfig,
+  type ConversionConfig,
+  type EmbroideryFormat,
+} from "@/lib/pipeline/config";
 import { warmupPyodide } from "@/lib/pipeline/pyodide-loader";
 import { warmupOpenCV } from "@/lib/pipeline/quantize";
-import type { FabricKind, StitchPattern } from "@/lib/pipeline/types";
+import type { StitchPattern } from "@/lib/pipeline/types";
 
-export type { FillStrategy };
-
-export type EmbroideryFormat = "dst" | "pes" | "jef" | "exp" | "vp3";
-
-export type ConversionConfig = {
-  format: EmbroideryFormat;
-  fabric: FabricKind;
-  widthMm: number;
-  colorCount: number;
-  stitchDensity: number;
-  satinMaxWidthMm: number;
-  /**
-   * 量子化前の色平滑化強度 (0..4)。bilateralFilter のプリセットにマップされ、
-   * 境界を保ったまま中間色を潰すので影色などの細いクラスタが背景に吸われにくくなる。
-   */
-  smoothing: number;
-  /**
-   * 各色レイヤーのマスクを何 px 膨張させてからトレースするか (0..3)。
-   * 隣接色レイヤーが互いに重なって pull gap を埋める。
-   */
-  boundaryDilatePx: number;
-  /** 全体の fill 縫い向き (deg)。0=水平、90=垂直。 */
-  fillAngleDeg: number;
-  /** 色 (colorIndex) ごとの fill 向き override (deg)。 */
-  fillAngleByColor: Record<number, number>;
-  /** shape 形状ベースで fill 方向を決めるかどうか。 */
-  fillStrategy: FillStrategy;
-  /** ユーザーが明示的に上書きした fabric-driven フィールドの集合。 */
-  overrides: Partial<Record<FabricOverrideKey, true>>;
-};
+// 既存の他コンポーネント (conversion-settings / result-panel / writer など) は
+// この再 export を経由して型を取得する。実定義は @/lib/pipeline/config に移行済み。
+export type { FillStrategy, ConversionConfig, EmbroideryFormat };
 
 export const defaultConfig: ConversionConfig = makeDefaultConfig("denim");
 

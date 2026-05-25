@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { applyFabricDefaults, makeDefaultConfig } from "../config";
+import {
+  applyFabricDefaults,
+  makeDefaultConfig,
+  type ConversionConfig,
+} from "../config";
 import { FABRIC_PROFILES } from "../fabric";
-import type { ConversionConfig } from "@/components/embroidery-studio";
 
 describe("makeDefaultConfig", () => {
   it("denim を渡すと fabric='denim' で stitchDensity=0.4 になる", () => {
@@ -60,6 +63,20 @@ describe("applyFabricDefaults", () => {
     const prev = makeDefaultConfig("twill");
     const next = applyFabricDefaults(prev, "twill");
     expect(next).toEqual(prev);
+  });
+
+  it("同じ fabric を再指定したときは参照同一を返す (React 再レンダー抑制)", () => {
+    const prev = makeDefaultConfig("twill");
+    expect(applyFabricDefaults(prev, "twill")).toBe(prev);
+  });
+
+  it("override 済み stitchDensity を持つ同 fabric 再指定でも参照同一", () => {
+    const prev: ConversionConfig = {
+      ...makeDefaultConfig("denim"),
+      stitchDensity: 0.55,
+      overrides: { stitchDensity: true },
+    };
+    expect(applyFabricDefaults(prev, "denim")).toBe(prev);
   });
 });
 

@@ -11,10 +11,12 @@ import { pullCompForWidth } from "./fabric";
 
 export type BuildObjectsInput = {
   regions: ColorRegion[];
+  /**
+   * mm 換算用のスケール。x と y は scaleShape で同一スカラー (widthMm/widthPx) を使うため
+   * 呼び出し側で等方スケールが保証されている前提。非等方スケールは現状サポートしない。
+   */
   widthMm: number;
-  heightMm: number;
   widthPx: number;
-  heightPx: number;
   fabric: FabricProfile;
   /** kind 判定の閾値オーバーライド。未指定なら既定値を使う */
   runMaxWidthMm?: number; // default 0.6

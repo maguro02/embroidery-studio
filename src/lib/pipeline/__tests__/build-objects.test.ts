@@ -10,9 +10,7 @@ describe("buildObjects — 基本", () => {
     const result = buildObjects({
       regions: [],
       widthMm: 100,
-      heightMm: 100,
       widthPx: 1000,
-      heightPx: 1000,
       fabric: FABRIC_PROFILES.denim,
       satinMaxWidthMm: 6,
     });
@@ -30,9 +28,7 @@ describe("buildObjects — 基本", () => {
     const result = buildObjects({
       regions: [region],
       widthMm: 100,
-      heightMm: 100,
       widthPx: 100,
-      heightPx: 100,
       fabric: FABRIC_PROFILES.denim,
       satinMaxWidthMm: 6,
     });
@@ -54,8 +50,7 @@ describe("buildObjects — kind 判定: fill", () => {
     };
     const result = buildObjects({
       regions: [square],
-      widthMm: 10, heightMm: 10, // 1px = 0.1mm
-      widthPx: 100, heightPx: 100,
+      widthMm: 10, widthPx: 100, // 1px = 0.1mm
       fabric: FABRIC_PROFILES.denim,
       satinMaxWidthMm: 6,
     });
@@ -86,7 +81,7 @@ describe("buildObjects — kind 判定: fill", () => {
     };
     const result = buildObjects({
       regions: [region],
-      widthMm: 30, heightMm: 30, widthPx: 300, heightPx: 300,
+      widthMm: 30, widthPx: 300,
       fabric: FABRIC_PROFILES.denim,
       satinMaxWidthMm: 6,
     });
@@ -108,7 +103,7 @@ describe("buildObjects — kind 判定: satin / run", () => {
     };
     const result = buildObjects({
       regions: [stripe],
-      widthMm: 10, heightMm: 1, widthPx: 100, heightPx: 10,
+      widthMm: 10, widthPx: 100,
       fabric: FABRIC_PROFILES.denim,
       satinMaxWidthMm: 6,
       satinMinAspectRatio: 4,
@@ -128,7 +123,7 @@ describe("buildObjects — kind 判定: satin / run", () => {
     };
     const result = buildObjects({
       regions: [thin],
-      widthMm: 10, heightMm: 1, widthPx: 100, heightPx: 10,
+      widthMm: 10, widthPx: 100,
       fabric: FABRIC_PROFILES.denim,
       runMaxWidthMm: 0.6,
       satinMaxWidthMm: 6,
@@ -148,7 +143,7 @@ describe("buildObjects — kind 判定: satin / run", () => {
     };
     const result = buildObjects({
       regions: [chubby],
-      widthMm: 10, heightMm: 5, widthPx: 100, heightPx: 50,
+      widthMm: 10, widthPx: 100,
       fabric: FABRIC_PROFILES.denim,
       satinMaxWidthMm: 6,
       satinMinAspectRatio: 4,
@@ -169,7 +164,7 @@ describe("buildObjects — 穴の保持", () => {
     };
     const result = buildObjects({
       regions: [donut],
-      widthMm: 20, heightMm: 20, widthPx: 200, heightPx: 200,
+      widthMm: 20, widthPx: 200,
       fabric: FABRIC_PROFILES.denim,
       satinMaxWidthMm: 6,
     });
@@ -191,7 +186,7 @@ describe("buildObjects — 穴の保持", () => {
     };
     const result = buildObjects({
       regions: [region],
-      widthMm: 10, heightMm: 10, widthPx: 100, heightPx: 100,
+      widthMm: 10, widthPx: 100,
       fabric: FABRIC_PROFILES.denim,
       satinMaxWidthMm: 6,
     });
@@ -211,7 +206,7 @@ describe("buildObjects — props のデフォルト派生", () => {
     };
     const result = buildObjects({
       regions: [region],
-      widthMm: 10, heightMm: 10, widthPx: 100, heightPx: 100,
+      widthMm: 10, widthPx: 100,
       fabric: FABRIC_PROFILES.denim, // defaultDensityMm = 0.40
       satinMaxWidthMm: 6,
     });
@@ -228,7 +223,7 @@ describe("buildObjects — props のデフォルト派生", () => {
     };
     const opts = {
       regions: [region],
-      widthMm: 10, heightMm: 10, widthPx: 100, heightPx: 100,
+      widthMm: 10, widthPx: 100,
       satinMaxWidthMm: 6,
     };
     const denim = buildObjects({ ...opts, fabric: FABRIC_PROFILES.denim });
@@ -245,7 +240,7 @@ describe("buildObjects — props のデフォルト派生", () => {
     };
     const result = buildObjects({
       regions: [stripe],
-      widthMm: 10, heightMm: 1, widthPx: 100, heightPx: 10,
+      widthMm: 10, widthPx: 100,
       fabric: FABRIC_PROFILES.denim,
       satinMaxWidthMm: 6,
       satinMinAspectRatio: 4,
@@ -263,7 +258,7 @@ describe("buildObjects — props のデフォルト派生", () => {
     };
     const result = buildObjects({
       regions: [region],
-      widthMm: 10, heightMm: 10, widthPx: 100, heightPx: 100,
+      widthMm: 10, widthPx: 100,
       fabric: FABRIC_PROFILES.denim,
       satinMaxWidthMm: 6,
     });
@@ -297,7 +292,7 @@ describe("buildObjects — generateStitches との整合性", () => {
       },
     ];
     const sharedOpts = {
-      widthMm: 50, heightMm: 50, widthPx: 500, heightPx: 500,
+      widthMm: 50, widthPx: 500,
       satinMaxWidthMm: 6,
     };
 
@@ -308,6 +303,8 @@ describe("buildObjects — generateStitches との整合性", () => {
     });
     const pattern = generateStitches({
       ...sharedOpts,
+      // generateStitches は legacy StitchInput を受け取るため heightMm/heightPx を補う
+      heightMm: 50, heightPx: 500,
       regions,
       stitchDensityMm: 0.4,
     });

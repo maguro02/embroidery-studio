@@ -196,3 +196,77 @@ describe("buildObjects — 穴の保持", () => {
     expect(result[0].shape.holes).toEqual([]);
   });
 });
+
+describe("buildObjects — props のデフォルト派生", () => {
+  it("densityMm が fabric.defaultDensityMm を採用する", () => {
+    const region: ColorRegion = {
+      colorIndex: 0, rgb: [0, 0, 0], svgPath: "",
+      shapes: [{
+        outer: [[0, 0], [100, 0], [100, 100], [0, 100]],
+        holes: [],
+      }],
+      polygons: [],
+    };
+    const result = buildObjects({
+      regions: [region],
+      widthMm: 10, heightMm: 10, widthPx: 100, heightPx: 100,
+      fabric: FABRIC_PROFILES.denim, // defaultDensityMm = 0.40
+      satinMaxWidthMm: 6,
+    });
+    expect(result[0].props.densityMm).toBeCloseTo(0.40);
+    expect(result[0].props.pushCompMm).toBe(FABRIC_PROFILES.denim.defaultPushCompMm);
+    expect(result[0].props.maxStitchMm).toBe(7);
+  });
+
+  it("terry は denim より高い densityMm を持つ", () => {
+    const region: ColorRegion = {
+      colorIndex: 0, rgb: [0, 0, 0], svgPath: "",
+      shapes: [{ outer: [[0, 0], [100, 0], [100, 100], [0, 100]], holes: [] }],
+      polygons: [],
+    };
+    const opts = {
+      regions: [region],
+      widthMm: 10, heightMm: 10, widthPx: 100, heightPx: 100,
+      satinMaxWidthMm: 6,
+    };
+    const denim = buildObjects({ ...opts, fabric: FABRIC_PROFILES.denim });
+    const terry = buildObjects({ ...opts, fabric: FABRIC_PROFILES.terry });
+    expect(terry[0].props.densityMm).toBeGreaterThan(denim[0].props.densityMm);
+  });
+
+  it("satin オブジェクトには pullCompMm が幅 (shortSide) から派生する", () => {
+    // 100px x 8px → 10mm x 0.8mm 帯
+    const stripe: ColorRegion = {
+      colorIndex: 0, rgb: [0, 0, 0], svgPath: "",
+      shapes: [{ outer: [[0, 0], [100, 0], [100, 8], [0, 8]], holes: [] }],
+      polygons: [],
+    };
+    const result = buildObjects({
+      regions: [stripe],
+      widthMm: 10, heightMm: 1, widthPx: 100, heightPx: 10,
+      fabric: FABRIC_PROFILES.denim,
+      satinMaxWidthMm: 6,
+      satinMinAspectRatio: 4,
+    });
+    expect(result[0].kind).toBe("satin");
+    // pullCompForWidth(denim, 0.8) = max(0.10, 0.025 * 0.8) = max(0.10, 0.02) = 0.10
+    expect(result[0].props.pullCompMm).toBeCloseTo(0.10);
+  });
+
+  it("underlay が fabric.underlayPolicy[kind](width) で派生する", () => {
+    const region: ColorRegion = {
+      colorIndex: 0, rgb: [0, 0, 0], svgPath: "",
+      shapes: [{ outer: [[0, 0], [100, 0], [100, 100], [0, 100]], holes: [] }],
+      polygons: [],
+    };
+    const result = buildObjects({
+      regions: [region],
+      widthMm: 10, heightMm: 10, widthPx: 100, heightPx: 100,
+      fabric: FABRIC_PROFILES.denim,
+      satinMaxWidthMm: 6,
+    });
+    expect(result[0].props.underlay).toEqual(
+      FABRIC_PROFILES.denim.underlayPolicy.fill(),
+    );
+  });
+});

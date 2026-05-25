@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { buildObjects } from "../build-objects";
+import { generateStitches } from "../stitch";
 import { FABRIC_PROFILES } from "../fabric";
 import type { ColorRegion } from "../vectorize";
+import type { StitchKind } from "../types";
 
 describe("buildObjects — 基本", () => {
   it("regions が空なら空配列を返す", () => {
@@ -268,5 +270,63 @@ describe("buildObjects — props のデフォルト派生", () => {
     expect(result[0].props.underlay).toEqual(
       FABRIC_PROFILES.denim.underlayPolicy.fill(),
     );
+  });
+});
+
+describe("buildObjects — generateStitches との整合性", () => {
+  it("同じ region 入力から buildObjects が返す kind 構成が、generateStitches の stitch.kind 構成に含まれる", () => {
+    // mmPerPx = 50/500 = 0.1
+    // Region 0: 100×100 px = 10×10 mm 正方形 → fill
+    // Region 1: 100×8  px = 10×0.8 mm 帯, aspect=12.5 > 4 → satin
+    // Region 2: 100×4  px = 10×0.4 mm 細線, shortSide < 0.6 → run
+    const regions: ColorRegion[] = [
+      {
+        colorIndex: 0, rgb: [255, 0, 0], svgPath: "",
+        shapes: [{ outer: [[0, 0], [100, 0], [100, 100], [0, 100]], holes: [] }],
+        polygons: [],
+      },
+      {
+        colorIndex: 1, rgb: [0, 255, 0], svgPath: "",
+        shapes: [{ outer: [[150, 0], [250, 0], [250, 8], [150, 8]], holes: [] }],
+        polygons: [],
+      },
+      {
+        colorIndex: 2, rgb: [0, 0, 255], svgPath: "",
+        shapes: [{ outer: [[0, 150], [100, 150], [100, 154], [0, 154]], holes: [] }],
+        polygons: [],
+      },
+    ];
+    const sharedOpts = {
+      widthMm: 50, heightMm: 50, widthPx: 500, heightPx: 500,
+      satinMaxWidthMm: 6,
+    };
+
+    const objects = buildObjects({
+      ...sharedOpts,
+      regions,
+      fabric: FABRIC_PROFILES.denim,
+    });
+    const pattern = generateStitches({
+      ...sharedOpts,
+      regions,
+      stitchDensityMm: 0.4,
+    });
+
+    // 期待: 3 オブジェクト (fill / satin / run)
+    expect(objects.map((o) => o.kind)).toEqual(["fill", "satin", "run"]);
+
+    // 各 block の run/satin/fill kind 集合と、対応する object.kind が一致
+    const renderableKinds: StitchKind[] = ["run", "satin", "fill"];
+    const kindsByBlock = pattern.blocks.map((b) =>
+      Array.from(
+        new Set(
+          b.stitches
+            .filter((s) => renderableKinds.includes(s.kind))
+            .map((s) => s.kind),
+        ),
+      ),
+    );
+    // colorIndex 順に並んだ blocks の kind 集合と objects の kind が一致
+    expect(kindsByBlock).toEqual([["fill"], ["satin"], ["run"]]);
   });
 });

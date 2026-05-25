@@ -29,7 +29,9 @@ const DEFAULT_MAX_STITCH_MM = 7;
 function scaleShape(shapePx: Shape, mmPerPx: number): Shape {
   return {
     outer: shapePx.outer.map(([x, y]) => [x * mmPerPx, y * mmPerPx]),
-    holes: [], // Cycle 4 で holes の変換を実装
+    holes: shapePx.holes
+      .filter((h) => h.length >= 3)
+      .map((h) => h.map(([x, y]) => [x * mmPerPx, y * mmPerPx])),
   };
 }
 

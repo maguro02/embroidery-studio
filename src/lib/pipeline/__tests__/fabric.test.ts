@@ -241,6 +241,40 @@ describe("underlayPolicy.satin (幅依存分岐)", () => {
     expect(u.kind).toBe("edge-run");
     expect(u.kind).not.toBe("zigzag");
   });
+
+  // 防御挙動: 非有限値・負数は最も軽い tier に落ちる (zigzag 等にフォールバックしない)
+  it.each<[FabricKind]>([["denim"], ["knit-light"], ["leather"], ["silk"]])(
+    "%s.satin(NaN) は重い underlay (zigzag) を返さない",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.satin(Number.NaN).kind).not.toBe("zigzag");
+    },
+  );
+  it.each<[FabricKind]>([["denim"], ["knit-light"], ["leather"], ["silk"]])(
+    "%s.satin(-1) は重い underlay (zigzag) を返さない",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.satin(-1).kind).not.toBe("zigzag");
+    },
+  );
+  it("denim.satin(Infinity) は重い underlay (zigzag) を返さない (非有限値防御)", () => {
+    expect(FABRIC_PROFILES.denim.underlayPolicy.satin(Number.POSITIVE_INFINITY).kind).not.toBe(
+      "zigzag",
+    );
+  });
+});
+
+describe("FABRIC_PROFILES は深く freeze されている", () => {
+  it("FABRIC_PROFILES.denim 自体が frozen", () => {
+    expect(Object.isFrozen(FABRIC_PROFILES.denim)).toBe(true);
+  });
+  it("FABRIC_PROFILES.denim.underlayPolicy が frozen", () => {
+    expect(Object.isFrozen(FABRIC_PROFILES.denim.underlayPolicy)).toBe(true);
+  });
+  it("frozen プロファイルへの書込みは strict mode で例外、非 strict では silent fail", () => {
+    // テストは vitest の strict mode で動くため、frozen への書込みは TypeError
+    expect(() => {
+      (FABRIC_PROFILES.denim as { defaultDensityMm: number }).defaultDensityMm = 99;
+    }).toThrow();
+  });
 });
 
 describe("underlayPolicy.fill (生地別)", () => {

@@ -113,8 +113,12 @@ const FILL_TABLE: Readonly<Record<FillFamily, () => UnderlayConfig>> = {
 
 function satinFor(family: SatinFamily, widthMm: number): UnderlayConfig {
   const t = SATIN_TABLE[family];
-  if (widthMm < t.tier1Max) return t.tier1();
-  if (widthMm <= t.tier2Max) return t.tier2();
+  // 非有限値 / 負数は 0 にクランプして「最も軽い tier1 (terry のみ tier2)」に倒す。
+  // pullCompForWidth と防御方針を揃え、不正入力が zigzag/重い underlay に
+  // フォールバックして針穴を増やすのを防ぐ。
+  const w = Number.isFinite(widthMm) && widthMm > 0 ? widthMm : 0;
+  if (w < t.tier1Max) return t.tier1();
+  if (w <= t.tier2Max) return t.tier2();
   return t.tier3();
 }
 
@@ -134,15 +138,18 @@ function underlayPolicyFor(kind: FabricKind): UnderlayPolicy {
 
 const FABRIC_KINDS = Object.keys(FABRIC_BASE_VALUES) as FabricKind[];
 
+// shallow freeze だと profile / underlayPolicy が mutate 可能だったため、
+// FabricProfile 単位と underlayPolicy 単位でも freeze する。Phase 5 で UI から
+// 値を上書きする際は必ず複製経由で行うことを構造的に保証する。
 export const FABRIC_PROFILES: Readonly<Record<FabricKind, FabricProfile>> = Object.freeze(
   Object.fromEntries(
     FABRIC_KINDS.map((kind): [FabricKind, FabricProfile] => [
       kind,
-      {
+      Object.freeze({
         kind,
         ...FABRIC_BASE_VALUES[kind],
-        underlayPolicy: underlayPolicyFor(kind),
-      },
+        underlayPolicy: Object.freeze(underlayPolicyFor(kind)),
+      }),
     ]),
   ) as Record<FabricKind, FabricProfile>,
 );

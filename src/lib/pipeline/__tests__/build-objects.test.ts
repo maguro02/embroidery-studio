@@ -92,3 +92,65 @@ describe("buildObjects — kind 判定: fill", () => {
     expect(result.map((o) => o.order)).toEqual([0, 1]);
   });
 });
+
+describe("buildObjects — kind 判定: satin / run", () => {
+  it("細長い帯 (幅 0.8mm, 長さ 10mm, aspect > 4) は kind=satin", () => {
+    // 100px x 8px = 10mm x 0.8mm (mmPerPx = 0.1)
+    const stripe: ColorRegion = {
+      colorIndex: 0, rgb: [0, 0, 0], svgPath: "",
+      shapes: [{
+        outer: [[0, 0], [100, 0], [100, 8], [0, 8]],
+        holes: [],
+      }],
+      polygons: [],
+    };
+    const result = buildObjects({
+      regions: [stripe],
+      widthMm: 10, heightMm: 1, widthPx: 100, heightPx: 10,
+      fabric: FABRIC_PROFILES.denim,
+      satinMaxWidthMm: 6,
+      satinMinAspectRatio: 4,
+    });
+    expect(result[0].kind).toBe("satin");
+  });
+
+  it("極細線 (幅 0.4mm < runMaxWidthMm 0.6mm) は kind=run", () => {
+    // 100px x 4px → 10mm x 0.4mm
+    const thin: ColorRegion = {
+      colorIndex: 0, rgb: [0, 0, 0], svgPath: "",
+      shapes: [{
+        outer: [[0, 0], [100, 0], [100, 4], [0, 4]],
+        holes: [],
+      }],
+      polygons: [],
+    };
+    const result = buildObjects({
+      regions: [thin],
+      widthMm: 10, heightMm: 1, widthPx: 100, heightPx: 10,
+      fabric: FABRIC_PROFILES.denim,
+      runMaxWidthMm: 0.6,
+      satinMaxWidthMm: 6,
+    });
+    expect(result[0].kind).toBe("run");
+  });
+
+  it("aspect ratio が 4 以下なら satin にならず fill になる", () => {
+    // 100px x 50px → 10mm x 5mm, aspect = 2
+    const chubby: ColorRegion = {
+      colorIndex: 0, rgb: [0, 0, 0], svgPath: "",
+      shapes: [{
+        outer: [[0, 0], [100, 0], [100, 50], [0, 50]],
+        holes: [],
+      }],
+      polygons: [],
+    };
+    const result = buildObjects({
+      regions: [chubby],
+      widthMm: 10, heightMm: 5, widthPx: 100, heightPx: 50,
+      fabric: FABRIC_PROFILES.denim,
+      satinMaxWidthMm: 6,
+      satinMinAspectRatio: 4,
+    });
+    expect(result[0].kind).toBe("fill");
+  });
+});

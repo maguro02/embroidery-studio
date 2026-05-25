@@ -2,8 +2,10 @@ import type { ColorRegion } from "./vectorize";
 import type {
   EmbroideryObject,
   FabricProfile,
+  ObjectKind,
   Shape,
 } from "./types";
+import { analyzeShape, computeAspectRatio } from "./geometry";
 
 export type BuildObjectsInput = {
   regions: ColorRegion[];
@@ -20,11 +22,31 @@ export type BuildObjectsInput = {
   satinMinAspectRatio?: number;
 };
 
+const DEFAULT_RUN_MAX_WIDTH_MM = 0.6;
+const DEFAULT_SATIN_MIN_ASPECT_RATIO = 4;
+const DEFAULT_MAX_STITCH_MM = 7;
+
 function scaleShape(shapePx: Shape, mmPerPx: number): Shape {
   return {
     outer: shapePx.outer.map(([x, y]) => [x * mmPerPx, y * mmPerPx]),
     holes: [], // Cycle 4 で holes の変換を実装
   };
+}
+
+function determineKind(
+  shape: Shape,
+  runMaxWidthMm: number,
+  satinMaxWidthMm: number,
+  satinMinAspectRatio: number,
+): { kind: ObjectKind; shortSide: number; aspectRatio: number } {
+  const { shortSide, longAxis, center } = analyzeShape(shape.outer);
+  const aspectRatio = computeAspectRatio(shape.outer, longAxis, center);
+  const hasHoles = shape.holes.length > 0;
+  if (shortSide < runMaxWidthMm) return { kind: "run", shortSide, aspectRatio };
+  if (!hasHoles && shortSide < satinMaxWidthMm && aspectRatio > satinMinAspectRatio) {
+    return { kind: "satin", shortSide, aspectRatio };
+  }
+  return { kind: "fill", shortSide, aspectRatio };
 }
 
 /**
@@ -34,21 +56,29 @@ function scaleShape(shapePx: Shape, mmPerPx: number): Shape {
 export function buildObjects(input: BuildObjectsInput): EmbroideryObject[] {
   const result: EmbroideryObject[] = [];
   const mmPerPx = input.widthMm / input.widthPx;
+  const runMaxWidthMm = input.runMaxWidthMm ?? DEFAULT_RUN_MAX_WIDTH_MM;
+  const satinMinAspectRatio = input.satinMinAspectRatio ?? DEFAULT_SATIN_MIN_ASPECT_RATIO;
   const sorted = [...input.regions].sort((a, b) => a.colorIndex - b.colorIndex);
   let order = 0;
   for (const region of sorted) {
     region.shapes.forEach((shapePx, shapeIndex) => {
       if (shapePx.outer.length < 3) return;
       const shapeMm = scaleShape(shapePx, mmPerPx);
+      const { kind } = determineKind(
+        shapeMm,
+        runMaxWidthMm,
+        input.satinMaxWidthMm,
+        satinMinAspectRatio,
+      );
       result.push({
         id: `${region.colorIndex}-${shapeIndex}`,
-        kind: "fill", // Cycle 3 で run/satin/fill 判定に置き換え
+        kind,
         colorIndex: region.colorIndex,
         rgb: region.rgb,
         shape: shapeMm,
         props: {
           densityMm: input.fabric.defaultDensityMm,
-          maxStitchMm: 7,
+          maxStitchMm: DEFAULT_MAX_STITCH_MM,
         },
         order: order++,
       });
@@ -56,3 +86,8 @@ export function buildObjects(input: BuildObjectsInput): EmbroideryObject[] {
   }
   return result;
 }
+
+export const __internal = {
+  determineKind,
+  scaleShape,
+};

@@ -87,3 +87,29 @@ describe("applyFabricDefaults — override 保持", () => {
     expect(next.stitchDensity).toBeCloseTo(0.42);
   });
 });
+
+describe("UI 統合シナリオ (純関数で再現)", () => {
+  it("シナリオ: denim 起動 → stitchDensity スライダで 0.5 に → fleece に切替 → stitchDensity=0.5 のまま", () => {
+    let cfg = makeDefaultConfig("denim");
+    expect(cfg.stitchDensity).toBeCloseTo(0.4);
+
+    cfg = {
+      ...cfg,
+      stitchDensity: 0.5,
+      overrides: { ...cfg.overrides, stitchDensity: true },
+    };
+
+    cfg = applyFabricDefaults(cfg, "fleece");
+
+    expect(cfg.fabric).toBe("fleece");
+    expect(cfg.stitchDensity).toBeCloseTo(0.5);
+  });
+
+  it("シナリオ: denim → terry → leather と切替し、いずれも未 override なら defaultDensityMm に追従", () => {
+    let cfg = makeDefaultConfig("denim");
+    cfg = applyFabricDefaults(cfg, "terry");
+    expect(cfg.stitchDensity).toBeCloseTo(0.42);
+    cfg = applyFabricDefaults(cfg, "leather");
+    expect(cfg.stitchDensity).toBeCloseTo(0.5);
+  });
+});

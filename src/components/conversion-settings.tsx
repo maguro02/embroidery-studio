@@ -17,6 +17,8 @@ import type {
   EmbroideryFormat,
   FillStrategy,
 } from "@/components/embroidery-studio";
+import { applyFabricDefaults } from "@/lib/pipeline/config";
+import type { FabricKind } from "@/lib/pipeline/types";
 
 type Props = {
   value: ConversionConfig;
@@ -31,6 +33,19 @@ const FORMATS: { value: EmbroideryFormat; label: string }[] = [
   { value: "jef", label: "JEF (Janome)" },
   { value: "exp", label: "EXP (Melco)" },
   { value: "vp3", label: "VP3 (Husqvarna)" },
+];
+
+const FABRICS: { value: FabricKind; label: string }[] = [
+  { value: "denim", label: "デニム" },
+  { value: "twill", label: "ツイル" },
+  { value: "canvas", label: "キャンバス" },
+  { value: "knit-light", label: "ニット (薄手)" },
+  { value: "knit-heavy", label: "ニット (厚手)" },
+  { value: "terry", label: "パイル (タオル地)" },
+  { value: "fleece", label: "フリース" },
+  { value: "leather", label: "レザー" },
+  { value: "silk", label: "シルク" },
+  { value: "felt", label: "フェルト" },
 ];
 
 const STRATEGIES: { value: FillStrategy; label: string }[] = [
@@ -56,6 +71,27 @@ export function ConversionSettings({
         <CardTitle className="text-base">2. パラメータを調整</CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
+        <div className="space-y-2">
+          <Label>生地</Label>
+          <Select
+            value={value.fabric}
+            onValueChange={(v) =>
+              onChange(applyFabricDefaults(value, v as FabricKind))
+            }
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {FABRICS.map((f) => (
+                <SelectItem key={f.value} value={f.value}>
+                  {f.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="space-y-2">
           <Label>出力フォーマット</Label>
           <Select
@@ -100,7 +136,13 @@ export function ConversionSettings({
           min={0.2}
           max={1.0}
           step={0.05}
-          onChange={(v) => update("stitchDensity", v)}
+          onChange={(v) =>
+            onChange({
+              ...value,
+              stitchDensity: v,
+              overrides: { ...value.overrides, stitchDensity: true },
+            })
+          }
         />
         <SliderField
           label="サテン最大幅"

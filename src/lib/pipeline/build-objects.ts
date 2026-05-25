@@ -3,9 +3,11 @@ import type {
   EmbroideryObject,
   FabricProfile,
   ObjectKind,
+  ObjectProps,
   Shape,
 } from "./types";
 import { analyzeShape, computeAspectRatio } from "./geometry";
+import { pullCompForWidth } from "./fabric";
 
 export type BuildObjectsInput = {
   regions: ColorRegion[];
@@ -51,6 +53,29 @@ function determineKind(
   return { kind: "fill", shortSide, aspectRatio };
 }
 
+function deriveDefaultProps(
+  kind: ObjectKind,
+  shortSideMm: number,
+  fabric: FabricProfile,
+): ObjectProps {
+  const underlay =
+    kind === "satin"
+      ? fabric.underlayPolicy.satin(shortSideMm)
+      : kind === "fill"
+        ? fabric.underlayPolicy.fill()
+        : fabric.underlayPolicy.run();
+  const props: ObjectProps = {
+    densityMm: fabric.defaultDensityMm,
+    maxStitchMm: DEFAULT_MAX_STITCH_MM,
+    pushCompMm: fabric.defaultPushCompMm,
+    underlay,
+  };
+  if (kind === "satin") {
+    props.pullCompMm = pullCompForWidth(fabric, shortSideMm);
+  }
+  return props;
+}
+
 /**
  * ColorRegion[] から EmbroideryObject[] を構築する。
  * order は region.colorIndex 昇順 × region 内 shape 出現順で 0-based 連番。
@@ -66,7 +91,7 @@ export function buildObjects(input: BuildObjectsInput): EmbroideryObject[] {
     region.shapes.forEach((shapePx, shapeIndex) => {
       if (shapePx.outer.length < 3) return;
       const shapeMm = scaleShape(shapePx, mmPerPx);
-      const { kind } = determineKind(
+      const { kind, shortSide } = determineKind(
         shapeMm,
         runMaxWidthMm,
         input.satinMaxWidthMm,
@@ -78,10 +103,7 @@ export function buildObjects(input: BuildObjectsInput): EmbroideryObject[] {
         colorIndex: region.colorIndex,
         rgb: region.rgb,
         shape: shapeMm,
-        props: {
-          densityMm: input.fabric.defaultDensityMm,
-          maxStitchMm: DEFAULT_MAX_STITCH_MM,
-        },
+        props: deriveDefaultProps(kind, shortSide, input.fabric),
         order: order++,
       });
     });
@@ -91,5 +113,6 @@ export function buildObjects(input: BuildObjectsInput): EmbroideryObject[] {
 
 export const __internal = {
   determineKind,
+  deriveDefaultProps,
   scaleShape,
 };

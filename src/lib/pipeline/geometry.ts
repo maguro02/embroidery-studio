@@ -1,4 +1,17 @@
-import type { Point2D, Polygon } from "./types";
+import type { Point2D, Polygon, Shape } from "./types";
+
+/**
+ * px 座標の Shape を mm 座標に変換する。
+ * 3 点未満の holes はスキップ (closed polygon にならないため)。
+ */
+export function scaleShape(shapePx: Shape, mmPerPx: number): Shape {
+  return {
+    outer: shapePx.outer.map(([x, y]) => [x * mmPerPx, y * mmPerPx]),
+    holes: shapePx.holes
+      .filter((h) => h.length >= 3)
+      .map((h) => h.map(([x, y]) => [x * mmPerPx, y * mmPerPx])),
+  };
+}
 
 /**
  * PCA で polygon の長軸方向と短辺長を求める。

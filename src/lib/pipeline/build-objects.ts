@@ -6,7 +6,7 @@ import type {
   ObjectProps,
   Shape,
 } from "./types";
-import { analyzeShape, computeAspectRatio } from "./geometry";
+import { analyzeShape, computeAspectRatio, scaleShape } from "./geometry";
 import { pullCompForWidth } from "./fabric";
 
 export type BuildObjectsInput = {
@@ -27,15 +27,6 @@ export type BuildObjectsInput = {
 const DEFAULT_RUN_MAX_WIDTH_MM = 0.6;
 const DEFAULT_SATIN_MIN_ASPECT_RATIO = 4;
 const DEFAULT_MAX_STITCH_MM = 7;
-
-function scaleShape(shapePx: Shape, mmPerPx: number): Shape {
-  return {
-    outer: shapePx.outer.map(([x, y]) => [x * mmPerPx, y * mmPerPx]),
-    holes: shapePx.holes
-      .filter((h) => h.length >= 3)
-      .map((h) => h.map(([x, y]) => [x * mmPerPx, y * mmPerPx])),
-  };
-}
 
 /**
  * shape の幾何特徴 (shortSide / aspectRatio / holes) から ObjectKind を決定する。
@@ -144,5 +135,4 @@ export function buildObjects(input: BuildObjectsInput): EmbroideryObject[] {
 export const __internal = {
   determineKind,
   deriveDefaultProps,
-  scaleShape,
 };

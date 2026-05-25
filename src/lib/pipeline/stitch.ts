@@ -6,7 +6,7 @@ import type {
   Shape,
 } from "./types";
 import type { ColorRegion } from "./vectorize";
-import { analyzeShape, computeAspectRatio } from "./geometry";
+import { analyzeShape, computeAspectRatio, scaleShape } from "./geometry";
 import { determineKind } from "./build-objects";
 
 const SATIN_MIN_ASPECT_RATIO = 4;
@@ -91,17 +91,9 @@ export function generateStitches(input: StitchInput): StitchPattern {
     for (const shapePx of region.shapes) {
       if (shapePx.outer.length < 3) continue;
 
-      const outerMm: Polygon = shapePx.outer.map(([x, y]) => [
-        x * mmPerPx,
-        y * mmPerPx,
-      ]);
-      const holesMm: Polygon[] = shapePx.holes
-        .filter((h) => h.length >= 3)
-        .map((h) => h.map(([x, y]) => [x * mmPerPx, y * mmPerPx] as Point));
-      const shapeMm: Shape = { outer: outerMm, holes: holesMm };
-      const hasHoles = holesMm.length > 0;
-
-      const { shortSide, longAxis, center } = analyzeShape(outerMm);
+      const shapeMm = scaleShape(shapePx, mmPerPx);
+      const outerMm = shapeMm.outer as Polygon;
+      const { longAxis, center } = analyzeShape(outerMm);
       const aspectRatio = computeAspectRatio(outerMm, longAxis, center);
       // kind 判定は build-objects.ts と共有する (Phase 1 PR3 Cycle 6)。
       // analyzeShape は二度走るが、renderer 側は longAxis / center / aspectRatio を

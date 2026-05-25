@@ -1,7 +1,39 @@
 import { describe, it, expect } from "vitest";
-import { __internal, generateStitches } from "../stitch";
-import type { Shape, StitchBlock } from "../types";
+import {
+  __internal,
+  generateStitches,
+  renderDesign,
+  renderRun,
+  renderSatin,
+  renderFill,
+  type RenderContext,
+  type RenderOptions,
+} from "../render";
+import { generateStitches as legacyGenerateStitches } from "../stitch";
+import { buildObjects } from "../build-objects";
+import { FABRIC_PROFILES } from "../fabric";
+import type {
+  EmbroideryDesign,
+  EmbroideryObject,
+  ObjectProps,
+  Shape,
+  StitchBlock,
+} from "../types";
 import type { ColorRegion } from "../vectorize";
+
+const DUMMY_PROPS: ObjectProps = { densityMm: 1, maxStitchMm: 7 };
+
+function makeCtx(overrides: Partial<RenderContext["opts"]> = {}): RenderContext {
+  const opts = {
+    widthMm: 100,
+    heightMm: 100,
+    widthPx: 100,
+    stitchDensityMm: 1,
+    satinMaxWidthMm: 2,
+    ...overrides,
+  };
+  return { opts };
+}
 
 const {
   fillStitches,
@@ -766,5 +798,444 @@ describe("generateStitches integration - jump-after-init bug", () => {
         s.kind === "fill" && s.x > 41 && s.x < 59 && s.y > 41 && s.y < 59,
     );
     expect(fillsInHole.length).toBe(0);
+  });
+});
+
+describe("renderRun", () => {
+  it("細い帯 (shortSide < runMaxWidth) のオブジェクトから run 種別の Stitch だけが返る", () => {
+    const obj: EmbroideryObject = {
+      id: "0-0",
+      kind: "run",
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      shape: {
+        outer: [
+          [0, 0],
+          [10, 0],
+          [10, 0.3],
+          [0, 0.3],
+        ],
+        holes: [],
+      },
+      props: DUMMY_PROPS,
+      order: 0,
+    };
+    const stitches = renderRun(obj, makeCtx());
+    expect(stitches.length).toBeGreaterThan(0);
+    for (const s of stitches) {
+      expect(s.kind).toBe("run");
+    }
+  });
+
+  it("先頭の Stitch は outer の最初の点 ≒ 起点 で kind='run'", () => {
+    const obj: EmbroideryObject = {
+      id: "0-0",
+      kind: "run",
+      colorIndex: 3,
+      rgb: [1, 2, 3],
+      shape: {
+        outer: [
+          [2, 2],
+          [12, 2],
+          [12, 2.3],
+          [2, 2.3],
+        ],
+        holes: [],
+      },
+      props: DUMMY_PROPS,
+      order: 0,
+    };
+    const stitches = renderRun(obj, makeCtx());
+    expect(stitches.length).toBeGreaterThan(0);
+    expect(stitches[0]).toMatchObject({ x: 2, y: 2, kind: "run", colorIndex: 3 });
+  });
+});
+
+describe("renderSatin", () => {
+  it("細長 satin オブジェクトから satin 種別だけが返る", () => {
+    const obj: EmbroideryObject = {
+      id: "0-0",
+      kind: "satin",
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      shape: {
+        outer: [
+          [0, 0],
+          [20, 0],
+          [20, 1],
+          [0, 1],
+        ],
+        holes: [],
+      },
+      props: DUMMY_PROPS,
+      order: 0,
+    };
+    const stitches = renderSatin(obj, makeCtx());
+    expect(stitches.length).toBeGreaterThan(0);
+    for (const s of stitches) {
+      expect(s.kind).toBe("satin");
+    }
+  });
+
+  it("Stitch 数が既存 generateStitches を同入力で呼んだときの最初の block の satin 数と一致", () => {
+    const outer: [number, number][] = [
+      [0, 0],
+      [20, 0],
+      [20, 1],
+      [0, 1],
+    ];
+    const obj: EmbroideryObject = {
+      id: "0-0",
+      kind: "satin",
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      shape: { outer, holes: [] },
+      props: DUMMY_PROPS,
+      order: 0,
+    };
+    const region: ColorRegion = {
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      svgPath: "",
+      polygons: [],
+      shapes: [{ outer, holes: [] }],
+    };
+    const fromRenderer = renderSatin(obj, makeCtx());
+    const fromLegacy = generateStitches({
+      regions: [region],
+      widthMm: 100,
+      heightMm: 100,
+      widthPx: 100,
+      heightPx: 100,
+      stitchDensityMm: 1,
+      satinMaxWidthMm: 2,
+    });
+    const satinCount = fromLegacy.blocks[0].stitches.filter(
+      (s) => s.kind === "satin",
+    ).length;
+    expect(fromRenderer.filter((s) => s.kind === "satin").length).toBe(satinCount);
+  });
+});
+
+describe("renderFill", () => {
+  it("普通の塗りオブジェクトから fill 種別の縫い目を返し、穴の中は走らない", () => {
+    const obj: EmbroideryObject = {
+      id: "0-0",
+      kind: "fill",
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      shape: {
+        outer: [
+          [0, 0],
+          [100, 0],
+          [100, 100],
+          [0, 100],
+        ],
+        holes: [
+          [
+            [40, 40],
+            [60, 40],
+            [60, 60],
+            [40, 60],
+          ],
+        ],
+      },
+      props: DUMMY_PROPS,
+      order: 0,
+    };
+    const stitches = renderFill(obj, makeCtx());
+    const fills = stitches.filter((s) => s.kind === "fill");
+    expect(fills.length).toBeGreaterThan(0);
+    const fillsInHole = fills.filter(
+      (s) => s.x > 41 && s.x < 59 && s.y > 41 && s.y < 59,
+    );
+    expect(fillsInHole.length).toBe(0);
+  });
+
+  it("renderer 出力の先頭は jump/trim/stop ではなく、stop は決して含まない", () => {
+    const obj: EmbroideryObject = {
+      id: "0-0",
+      kind: "fill",
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      shape: {
+        outer: [
+          [0, 0],
+          [20, 0],
+          [20, 20],
+          [0, 20],
+        ],
+        holes: [],
+      },
+      props: DUMMY_PROPS,
+      order: 0,
+    };
+    const stitches = renderFill(obj, makeCtx());
+    expect(stitches.length).toBeGreaterThan(0);
+    // 先頭は jump/trim/stop ではなく、実 stitch (fill) であること (prev=undefined 挙動)
+    expect(["jump", "trim", "stop"]).not.toContain(stitches[0].kind);
+    // stop は renderer の責務外
+    expect(stitches.some((s) => s.kind === "stop")).toBe(false);
+  });
+});
+
+describe("renderDesign", () => {
+  const baseOpts: RenderOptions = {
+    widthMm: 100,
+    heightMm: 100,
+    widthPx: 100,
+    stitchDensityMm: 1,
+    satinMaxWidthMm: 2,
+  };
+
+  function makeFillObj(
+    id: string,
+    colorIndex: number,
+    order: number,
+    outer: [number, number][],
+  ): EmbroideryObject {
+    return {
+      id,
+      kind: "fill",
+      colorIndex,
+      rgb: [colorIndex * 50, 0, 0],
+      shape: { outer, holes: [] },
+      props: DUMMY_PROPS,
+      order,
+    };
+  }
+
+  it("単一オブジェクト (kind=fill) を含む design から block 1 個の pattern を返す", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 100,
+      fabric: FABRIC_PROFILES.denim,
+      objects: [
+        makeFillObj("0-0", 0, 0, [
+          [0, 0],
+          [20, 0],
+          [20, 20],
+          [0, 20],
+        ]),
+      ],
+    };
+    const pattern = renderDesign(design, baseOpts);
+    expect(pattern.blocks.length).toBe(1);
+    expect(pattern.blocks[0].colorIndex).toBe(0);
+    expect(pattern.blocks[0].stitches.length).toBeGreaterThan(0);
+    // 単一 block には末尾 stop は付かない
+    expect(pattern.blocks[0].stitches.some((s) => s.kind === "stop")).toBe(false);
+  });
+
+  it("異なる colorIndex のオブジェクト 2 個から block 2 個を返し、前 block 末尾に kind=stop が挟まる", () => {
+    const outer: [number, number][] = [
+      [0, 0],
+      [20, 0],
+      [20, 20],
+      [0, 20],
+    ];
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 100,
+      fabric: FABRIC_PROFILES.denim,
+      objects: [
+        makeFillObj("0-0", 0, 0, outer),
+        makeFillObj("1-0", 1, 1, outer),
+      ],
+    };
+    const pattern = renderDesign(design, baseOpts);
+    expect(pattern.blocks.length).toBe(2);
+    expect(pattern.blocks[0].colorIndex).toBe(0);
+    expect(pattern.blocks[1].colorIndex).toBe(1);
+    // 前 block 末尾に stop が 1 つだけ挿入されている
+    const stopsInBlock0 = pattern.blocks[0].stitches.filter(
+      (s) => s.kind === "stop",
+    );
+    expect(stopsInBlock0.length).toBe(1);
+    expect(pattern.blocks[0].stitches[pattern.blocks[0].stitches.length - 1].kind).toBe("stop");
+    // 後 block には stop は付かない
+    expect(pattern.blocks[1].stitches.some((s) => s.kind === "stop")).toBe(false);
+  });
+
+  it("同じ colorIndex の fill + run が混在しても 1 block にマージされる", () => {
+    const fillOuter: [number, number][] = [
+      [0, 0],
+      [20, 0],
+      [20, 20],
+      [0, 20],
+    ];
+    const runOuter: [number, number][] = [
+      [30, 0],
+      [40, 0],
+      [40, 0.3],
+      [30, 0.3],
+    ];
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 100,
+      fabric: FABRIC_PROFILES.denim,
+      objects: [
+        makeFillObj("0-0", 0, 0, fillOuter),
+        {
+          id: "0-1",
+          kind: "run",
+          colorIndex: 0,
+          rgb: [0, 0, 0],
+          shape: { outer: runOuter, holes: [] },
+          props: DUMMY_PROPS,
+          order: 1,
+        },
+      ],
+    };
+    const pattern = renderDesign(design, baseOpts);
+    expect(pattern.blocks.length).toBe(1);
+    const kinds = new Set(pattern.blocks[0].stitches.map((s) => s.kind));
+    expect(kinds.has("fill")).toBe(true);
+    expect(kinds.has("run")).toBe(true);
+  });
+
+  it("order の昇順で描画される (大きい order が後)", () => {
+    // 離れた 2 つの fill (同色)。order を逆順 (10, 0) で渡しても、
+    // 描画は order 昇順なので order=0 (右の矩形) が先になる。
+    const leftSquare: [number, number][] = [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ];
+    const rightSquare: [number, number][] = [
+      [50, 0],
+      [60, 0],
+      [60, 10],
+      [50, 10],
+    ];
+    const objects: EmbroideryObject[] = [
+      // わざと order=10 を先に並べる
+      makeFillObj("0-1", 0, 10, leftSquare),
+      makeFillObj("0-0", 0, 0, rightSquare),
+    ];
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 100,
+      fabric: FABRIC_PROFILES.denim,
+      objects,
+    };
+    const pattern = renderDesign(design, baseOpts);
+    const fills = pattern.blocks[0].stitches.filter((s) => s.kind === "fill");
+    // 最初の fill は order=0 の右側矩形 (x>=50) から始まるはず
+    expect(fills[0].x).toBeGreaterThanOrEqual(50);
+    // 最後の fill は order=10 の左側矩形 (x<=10) で終わるはず
+    expect(fills[fills.length - 1].x).toBeLessThanOrEqual(10);
+  });
+
+  // NOTE (documentation-level guard):
+  //   PR4 完了時点で stitch.ts は `export * from "./render"` の shim になり、
+  //   `legacyGenerateStitches` と `generateStitches` は同一関数を指す。
+  //   ここでの比較は「2 経路で同じ実装を呼ぶ」自己参照になり、リファクタ等価性の
+  //   強い回帰検出にはならない。PR5 で golden 値ベースのテストに置き換える予定
+  //   (PR5 commit "test(pipeline): break self-referential render equivalence check")。
+  //   それまでは shim 経由でも例外が出ないことの smoke test として残す。
+  it("equivalence: 既存 stitch.ts の generateStitches と renderDesign(buildObjects) が完全一致", () => {
+    // 3 色を含む region 入力。fill / satin / run の全 kind を網羅。
+    const regions: ColorRegion[] = [
+      {
+        colorIndex: 0,
+        rgb: [255, 0, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [0, 0],
+              [100, 0],
+              [100, 100],
+              [0, 100],
+            ],
+            holes: [
+              [
+                [40, 40],
+                [60, 40],
+                [60, 60],
+                [40, 60],
+              ],
+            ],
+          },
+        ],
+      },
+      {
+        colorIndex: 1,
+        rgb: [0, 255, 0],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [150, 0],
+              [250, 0],
+              [250, 8],
+              [150, 8],
+            ],
+            holes: [],
+          },
+        ],
+      },
+      {
+        colorIndex: 2,
+        rgb: [0, 0, 255],
+        svgPath: "",
+        polygons: [],
+        shapes: [
+          {
+            outer: [
+              [0, 150],
+              [100, 150],
+              [100, 154],
+              [0, 154],
+            ],
+            holes: [],
+          },
+        ],
+      },
+    ];
+    const sharedOpts = {
+      widthMm: 50,
+      heightMm: 50,
+      widthPx: 500,
+      heightPx: 500,
+      stitchDensityMm: 0.4,
+      satinMaxWidthMm: 6,
+    };
+
+    const legacy = legacyGenerateStitches({ ...sharedOpts, regions });
+    const objects = buildObjects({
+      ...sharedOpts,
+      regions,
+      fabric: FABRIC_PROFILES.denim,
+    });
+    const design: EmbroideryDesign = {
+      widthMm: sharedOpts.widthMm,
+      heightMm: sharedOpts.heightMm,
+      fabric: FABRIC_PROFILES.denim,
+      objects,
+    };
+    const fresh = renderDesign(design, sharedOpts);
+
+    // pattern.widthMm/heightMm/totalStitches は両方同じ
+    expect(fresh.widthMm).toBe(legacy.widthMm);
+    expect(fresh.heightMm).toBe(legacy.heightMm);
+    expect(fresh.totalStitches).toBe(legacy.totalStitches);
+    // blocks 数も同じ
+    expect(fresh.blocks.length).toBe(legacy.blocks.length);
+    // 各 block の全 stitch が一致 (x, y, kind, colorIndex)
+    for (let i = 0; i < legacy.blocks.length; i++) {
+      const lb = legacy.blocks[i];
+      const fb = fresh.blocks[i];
+      expect(fb.colorIndex).toBe(lb.colorIndex);
+      expect(fb.rgb).toEqual(lb.rgb);
+      expect(fb.stitches.length).toBe(lb.stitches.length);
+      for (let j = 0; j < lb.stitches.length; j++) {
+        expect(fb.stitches[j]).toEqual(lb.stitches[j]);
+      }
+    }
   });
 });

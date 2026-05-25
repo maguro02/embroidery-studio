@@ -10,12 +10,12 @@ import { ColorAngleEditor } from "@/components/color-angle-editor";
 import {
   runPrepipeline,
   runStitchAndWrite,
+  type FillStrategy,
   type PipelineProgress,
   type PrepipelineResult,
 } from "@/lib/pipeline";
 import { warmupPyodide } from "@/lib/pipeline/pyodide-loader";
 import { warmupOpenCV } from "@/lib/pipeline/quantize";
-import type { FillStrategy } from "@/lib/pipeline/stitch";
 import type { StitchPattern } from "@/lib/pipeline/types";
 
 export type { FillStrategy };

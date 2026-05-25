@@ -295,9 +295,7 @@ export function generateStitches(input: StitchInput): StitchPattern {
   const objects = buildObjects({
     regions,
     widthMm,
-    heightMm,
     widthPx,
-    heightPx,
     fabric,
     runMaxWidthMm,
     satinMaxWidthMm,

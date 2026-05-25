@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { applyFabricDefaults, makeDefaultConfig } from "../config";
 import { FABRIC_PROFILES } from "../fabric";
+import type { ConversionConfig } from "@/components/embroidery-studio";
 
 describe("makeDefaultConfig", () => {
   it("denim を渡すと fabric='denim' で stitchDensity=0.4 になる", () => {
@@ -59,5 +60,30 @@ describe("applyFabricDefaults", () => {
     const prev = makeDefaultConfig("twill");
     const next = applyFabricDefaults(prev, "twill");
     expect(next).toEqual(prev);
+  });
+});
+
+describe("applyFabricDefaults — override 保持", () => {
+  it("overrides.stitchDensity=true が立っていれば fabric 切替で stitchDensity が消えない", () => {
+    const prev: ConversionConfig = {
+      ...makeDefaultConfig("denim"),
+      stitchDensity: 0.55,
+      overrides: { stitchDensity: true },
+    };
+
+    const next = applyFabricDefaults(prev, "terry");
+    expect(next.fabric).toBe("terry");
+    expect(next.stitchDensity).toBeCloseTo(0.55);
+    expect(next.overrides.stitchDensity).toBe(true);
+  });
+
+  it("override が空 ({}) なら fabric 切替で stitchDensity が追従する (Cycle 2 と整合)", () => {
+    const prev: ConversionConfig = {
+      ...makeDefaultConfig("denim"),
+      stitchDensity: 0.4,
+      overrides: {},
+    };
+    const next = applyFabricDefaults(prev, "terry");
+    expect(next.stitchDensity).toBeCloseTo(0.42);
   });
 });

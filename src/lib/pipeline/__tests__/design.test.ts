@@ -146,4 +146,13 @@ describe("serializeDesign / deserializeDesign", () => {
     const r = deserializeDesign(JSON.parse(JSON.stringify(s)), fabricResolver);
     expect(r.objects[0].props.pullCompPerSideMm).toEqual({ left: 0.1, right: 0.2 });
   });
+
+  it("deserializeDesign は s.objects を deep copy する（呼び出し元 mutation が漏れない）", () => {
+    const s = serializeDesign(sample);
+    const restored = deserializeDesign(s, fabricResolver);
+    expect(restored.objects).not.toBe(s.objects);
+    expect(restored.objects[0]).not.toBe(s.objects[0]);
+    s.objects[0].colorIndex = 999;
+    expect(restored.objects[0].colorIndex).toBe(0);
+  });
 });

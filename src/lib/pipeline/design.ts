@@ -73,6 +73,7 @@ export function deserializeDesign(
     widthMm: s.widthMm,
     heightMm: s.heightMm,
     fabric: fabricResolver(s.fabric.kind),
-    objects: s.objects,
+    // SerializedDesign を直接受け取る経路でも mutation が漏れないよう deep copy する
+    objects: JSON.parse(JSON.stringify(s.objects)) as EmbroideryObject[],
   };
 }

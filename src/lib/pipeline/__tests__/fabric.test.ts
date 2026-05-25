@@ -201,6 +201,34 @@ describe("underlayPolicy.satin (幅依存分岐)", () => {
     expect(u.kind).not.toBe("zigzag");
   });
 
+  // tier1/tier2 境界 (widthMm == tier1Max): `< tier1Max` のため tier2 に落ちる
+  // twill family は tier1Max=2 / tier2Max=4 — 2.0 と 4.0 は両方とも edge-run のはず
+  it.each<[FabricKind]>([["denim"], ["twill"], ["canvas"], ["felt"]])(
+    "%s.satin(2.0) は edge-run (tier1/tier2 境界 — `<` ではなく `<=` の側に落ちる)",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.satin(2.0).kind).toBe("edge-run");
+    },
+  );
+  it.each<[FabricKind]>([["denim"], ["twill"], ["canvas"], ["felt"]])(
+    "%s.satin(4.0) は edge-run (tier2/tier3 境界 — 4.0 はまだ zigzag ではない)",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.satin(4.0).kind).toBe("edge-run");
+    },
+  );
+  // knit family も同じ境界
+  it.each<[FabricKind]>([["knit-light"], ["knit-heavy"]])(
+    "%s.satin(2.0) は edge-run (境界)",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.satin(2.0).kind).toBe("edge-run");
+    },
+  );
+  it.each<[FabricKind]>([["knit-light"], ["knit-heavy"]])(
+    "%s.satin(4.0) は edge-run (境界)",
+    (kind) => {
+      expect(FABRIC_PROFILES[kind].underlayPolicy.satin(4.0).kind).toBe("edge-run");
+    },
+  );
+
   // silk: 軽め (細幅では none)
   it("silk.satin(1.5) は none (軽め)", () => {
     expect(FABRIC_PROFILES.silk.underlayPolicy.satin(1.5).kind).toBe("none");

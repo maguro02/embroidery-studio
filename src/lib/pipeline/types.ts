@@ -36,3 +36,65 @@ export type StitchPattern = {
   blocks: StitchBlock[];
   totalStitches: number;
 };
+
+// ---- Object-based model (Phase 1) ----
+// EmbroideryObject 配下は純データのみ。関数フィールドを足す場合は
+// design.ts の serializeDesign を必ず見直すこと (JSON.parse/stringify deep copy 依存)。
+
+export type ObjectKind = "run" | "satin" | "fill";
+
+export type UnderlayConfig =
+  | { kind: "none" }
+  | { kind: "edge-run"; insetMm: number; stitchLenMm: number }
+  | { kind: "center-run"; stitchLenMm: number }
+  | { kind: "zigzag"; spacingMm: number; insetMm: number }
+  | { kind: "fill"; angleDeg: number; spacingMm: number };
+
+export type ObjectProps = {
+  densityMm: number;
+  maxStitchMm: number;
+  angleDeg?: number;
+  pullCompMm?: number;
+  pullCompPerSideMm?: { left: number; right: number };
+  pushCompMm?: number;
+  underlay?: UnderlayConfig;
+  lockstitch?: boolean;
+};
+
+export type EmbroideryObject = {
+  id: string;
+  kind: ObjectKind;
+  colorIndex: number;
+  rgb: [number, number, number];
+  shape: Shape;
+  props: ObjectProps;
+  order: number;
+  locked?: boolean;
+};
+
+export type FabricKind =
+  | "denim" | "twill" | "canvas"
+  | "knit-light" | "knit-heavy"
+  | "terry" | "fleece" | "leather" | "silk" | "felt";
+
+export type UnderlayPolicy = {
+  satin: (widthMm: number) => UnderlayConfig;
+  fill: () => UnderlayConfig;
+  run: () => UnderlayConfig;
+};
+
+export type FabricProfile = {
+  kind: FabricKind;
+  defaultDensityMm: number;
+  pullCompPerWidth: number;
+  minPullCompMm: number;
+  underlayPolicy: UnderlayPolicy;
+  defaultPushCompMm: number;
+};
+
+export type EmbroideryDesign = {
+  widthMm: number;
+  heightMm: number;
+  fabric: FabricProfile;
+  objects: EmbroideryObject[];
+};

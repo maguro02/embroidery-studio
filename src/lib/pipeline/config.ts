@@ -22,3 +22,19 @@ export function makeDefaultConfig(fabric: FabricKind): ConversionConfig {
     overrides: {},
   };
 }
+
+/**
+ * fabric 切替時に fabric-driven フィールドを新しい fabric の既定値に差し替えた
+ * config を返す。
+ */
+export function applyFabricDefaults(
+  prev: ConversionConfig,
+  nextFabric: FabricKind,
+): ConversionConfig {
+  const profile = FABRIC_PROFILES[nextFabric];
+  return {
+    ...prev,
+    fabric: nextFabric,
+    stitchDensity: profile.defaultDensityMm,
+  };
+}

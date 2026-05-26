@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { __internal, applyPullCompensation } from "../compensation";
+import {
+  __internal,
+  applyPullCompensation,
+  applyPushCompensation,
+} from "../compensation";
 import { getFabricProfile } from "../fabric";
 import { analyzeShape } from "../geometry";
 import type { EmbroideryObject, Shape } from "../types";
@@ -172,7 +176,7 @@ describe("applyPullCompensation", () => {
     expect(applyPullCompensation(obj, denim)).toBe(obj);
   });
 
-  it("Fill は PR8 では参照同一で返る (PR9 まで未対応)", () => {
+  it("Fill (PR9 拡張) では参照同一ではなく新 object を返す", () => {
     const shape: Shape = {
       outer: [
         [0, 0],
@@ -183,7 +187,7 @@ describe("applyPullCompensation", () => {
       holes: [],
     };
     const obj = makeObj("fill", shape, { pullCompMm: 0.2 });
-    expect(applyPullCompensation(obj, denim)).toBe(obj);
+    expect(applyPullCompensation(obj, denim)).not.toBe(obj);
   });
 
   it("入力 obj.shape は破壊されない (非破壊性)", () => {
@@ -273,5 +277,299 @@ describe("applyPullCompensation", () => {
     const r = applyPullCompensation(obj, denim);
     const b = bbox(r.shape.outer);
     expect(b.h).toBeCloseTo(5.4, 1); // 平均 0.2 → 5 + 0.4
+  });
+});
+
+describe("applyPullCompensation (Fill, PR9 拡張)", () => {
+  it("Fill (穴あり) で outer は外側 / hole は内側にオフセットされる", () => {
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+      ],
+      holes: [
+        [
+          [3, 3],
+          [7, 3],
+          [7, 7],
+          [3, 7],
+        ],
+      ],
+    };
+    const obj = makeObj("fill", shape, { pullCompMm: 0.2 });
+    const r = applyPullCompensation(obj, denim);
+    expect(r).not.toBe(obj);
+    const ob = bbox(r.shape.outer);
+    expect(ob.w).toBeCloseTo(10.4, 1);
+    expect(r.shape.holes).toHaveLength(1);
+    const hb = bbox(r.shape.holes[0]);
+    expect(hb.w).toBeCloseTo(3.6, 1);
+  });
+
+  it("Fill (穴なし) で outer のみ広がる", () => {
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+      ],
+      holes: [],
+    };
+    const obj = makeObj("fill", shape, { pullCompMm: 0.3 });
+    const r = applyPullCompensation(obj, denim);
+    expect(bbox(r.shape.outer).w).toBeCloseTo(10.6, 1);
+  });
+
+  it("Fill で pullCompMm 未指定なら pullCompForWidth 値を採用", () => {
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+      ],
+      holes: [],
+    };
+    const obj = makeObj("fill", shape);
+    const r = applyPullCompensation(obj, denim);
+    // shortSide=10mm → max(0.10, 10*0.025)=0.25mm → w=10.5
+    expect(bbox(r.shape.outer).w).toBeCloseTo(10.5, 1);
+  });
+});
+
+describe("applyPushCompensation (overlap detection)", () => {
+  const tenSquare: Shape = {
+    outer: [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ],
+    holes: [],
+  };
+
+  it("neighbors=[] なら参照同一", () => {
+    const obj = makeObj("fill", tenSquare, { pushCompMm: 0.4 });
+    expect(applyPushCompensation(obj, [])).toBe(obj);
+  });
+
+  it("離れた異色 neighbor のみなら参照同一", () => {
+    const obj = makeObj("fill", tenSquare, { pushCompMm: 0.4 });
+    const far: EmbroideryObject = {
+      ...makeObj("fill", {
+        outer: [
+          [100, 100],
+          [110, 100],
+          [110, 110],
+          [100, 110],
+        ],
+        holes: [],
+      }),
+      id: "f",
+      colorIndex: 1,
+    };
+    expect(applyPushCompensation(obj, [far])).toBe(obj);
+  });
+
+  it("同色 neighbor とのみ重なっていれば参照同一 (Phase 2 §5.2)", () => {
+    const obj = makeObj("fill", tenSquare, { pushCompMm: 0.4 });
+    const same: EmbroideryObject = {
+      ...makeObj("fill", {
+        outer: [
+          [5, 5],
+          [15, 5],
+          [15, 15],
+          [5, 15],
+        ],
+        holes: [],
+      }),
+      id: "s",
+      colorIndex: 0,
+    };
+    expect(applyPushCompensation(obj, [same])).toBe(obj);
+  });
+
+  it("異色 neighbor と重なる場合 shape が変化した新 object", () => {
+    const obj = makeObj("fill", tenSquare, { pushCompMm: 0.4 });
+    const diff: EmbroideryObject = {
+      ...makeObj("fill", {
+        outer: [
+          [5, 5],
+          [15, 5],
+          [15, 15],
+          [5, 15],
+        ],
+        holes: [],
+      }),
+      id: "d",
+      colorIndex: 1,
+    };
+    const r = applyPushCompensation(obj, [diff]);
+    expect(r).not.toBe(obj);
+    expect(bbox(r.shape.outer).w).toBeLessThan(10);
+  });
+
+  it("kind=run の obj は常に参照同一", () => {
+    const obj = makeObj(
+      "run",
+      {
+        outer: [
+          [0, 0],
+          [10, 0],
+        ],
+        holes: [],
+      },
+      { pushCompMm: 0.4 },
+    );
+    const overlap: EmbroideryObject = {
+      ...makeObj("fill", {
+        outer: [
+          [0, -5],
+          [10, -5],
+          [10, 5],
+          [0, 5],
+        ],
+        holes: [],
+      }),
+      id: "n",
+      colorIndex: 1,
+    };
+    expect(applyPushCompensation(obj, [overlap])).toBe(obj);
+  });
+
+  it("pushCompMm 未指定 (=0 扱い) なら参照同一", () => {
+    const obj = makeObj("fill", tenSquare);
+    const overlap: EmbroideryObject = {
+      ...makeObj("fill", {
+        outer: [
+          [5, 5],
+          [15, 5],
+          [15, 15],
+          [5, 15],
+        ],
+        holes: [],
+      }),
+      id: "x",
+      colorIndex: 1,
+    };
+    expect(applyPushCompensation(obj, [overlap])).toBe(obj);
+  });
+});
+
+describe("applyPushCompensation (offset values)", () => {
+  const tenSquare: Shape = {
+    outer: [
+      [0, 0],
+      [10, 0],
+      [10, 10],
+      [0, 10],
+    ],
+    holes: [],
+  };
+  function diffColorNeighbor(): EmbroideryObject {
+    return {
+      ...makeObj("fill", {
+        outer: [
+          [5, 5],
+          [15, 5],
+          [15, 15],
+          [5, 15],
+        ],
+        holes: [],
+      }),
+      id: "dn",
+      colorIndex: 99,
+    };
+  }
+
+  it("10mm 正方形に pushCompMm=0.4 で outer bbox は 9.2mm に縮む", () => {
+    const obj = makeObj("fill", tenSquare, { pushCompMm: 0.4 });
+    const r = applyPushCompensation(obj, [diffColorNeighbor()]);
+    const b = bbox(r.shape.outer);
+    expect(b.w).toBeCloseTo(9.2, 1);
+    expect(b.h).toBeCloseTo(9.2, 1);
+  });
+
+  it("穴あり fill で outer は内側 / hole は外側にオフセット", () => {
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+      ],
+      holes: [
+        [
+          [3, 3],
+          [7, 3],
+          [7, 7],
+          [3, 7],
+        ],
+      ],
+    };
+    const obj = makeObj("fill", shape, { pushCompMm: 0.4 });
+    const r = applyPushCompensation(obj, [diffColorNeighbor()]);
+    expect(bbox(r.shape.outer).w).toBeCloseTo(9.2, 1);
+    expect(r.shape.holes).toHaveLength(1);
+    expect(bbox(r.shape.holes[0]).w).toBeCloseTo(4.8, 1); // 4 + 0.8
+  });
+
+  it("異色 neighbor が複数あっても shape は 1 回ぶんしか縮まない", () => {
+    const obj = makeObj("fill", tenSquare, { pushCompMm: 0.4 });
+    const n1 = diffColorNeighbor();
+    const n2: EmbroideryObject = {
+      ...makeObj("fill", {
+        outer: [
+          [8, 8],
+          [12, 8],
+          [12, 12],
+          [8, 12],
+        ],
+        holes: [],
+      }),
+      id: "n2",
+      colorIndex: 100,
+    };
+    const r = applyPushCompensation(obj, [n1, n2]);
+    expect(bbox(r.shape.outer).w).toBeCloseTo(9.2, 1);
+  });
+
+  it("pushCompMm が大きすぎて outer が消失する場合は元 shape の座標を保つ", () => {
+    const small: Shape = {
+      outer: [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+      ],
+      holes: [],
+    };
+    const obj = makeObj("fill", small, { pushCompMm: 2 });
+    const overlap: EmbroideryObject = {
+      ...makeObj("fill", {
+        outer: [
+          [-1, -1],
+          [2, -1],
+          [2, 2],
+          [-1, 2],
+        ],
+        holes: [],
+      }),
+      id: "ov",
+      colorIndex: 1,
+    };
+    const r = applyPushCompensation(obj, [overlap]);
+    expect(bbox(r.shape.outer).w).toBeCloseTo(1, 2);
+    expect(bbox(r.shape.outer).h).toBeCloseTo(1, 2);
+  });
+
+  it("入力 obj.shape は破壊されない", () => {
+    const obj = makeObj("fill", tenSquare, { pushCompMm: 0.4 });
+    const snap = JSON.stringify(tenSquare);
+    applyPushCompensation(obj, [diffColorNeighbor()]);
+    expect(JSON.stringify(tenSquare)).toBe(snap);
   });
 });

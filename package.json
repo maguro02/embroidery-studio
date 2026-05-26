@@ -15,6 +15,7 @@
     "@base-ui/react": "^1.4.1",
     "@techstark/opencv-js": "^4.12.0-release.1",
     "class-variance-authority": "^0.7.1",
+    "clipper-lib": "^6.4.2",
     "clsx": "^2.1.1",
     "imagetracerjs": "^1.2.6",
     "lucide-react": "^1.14.0",

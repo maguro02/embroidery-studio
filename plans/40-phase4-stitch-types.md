@@ -1,5 +1,15 @@
 # Phase 4. Stitch Types - Satin (rail pair / auto split) / Fill (tatami brick) / Run (medial-axis)
 
+> **Status: ✅ Complete** (2026-05-26 merged PR #16 / #17 / #18 / #19)
+> - PR16 (#16): Tatami brick fill (`fill.ts` 新規) — scanline ごとの 1/3 位相シフトで needle perforation 分散、`shiftMm=0` で旧 `fillStitches` と座標一致
+> - PR17 (#17): 2-rail satin renderer (`satin.ts` 新規) — convex-hull 長辺 axis + cap-group 識別で矩形/C 字を統一抽出、arc-length 同期の zigzag (中点曲線 ±5-10% 密度精度)
+> - PR18 (#18): Brick auto-split + renderer 統合 — `brickSplit` (rowIndex % 3) / 3 位相、`renderSatinTopOnly` を 2-rail+brick チェーンに切替、`disableAutoSplit` 互換フラグ
+> - PR19 (#19): Medial-axis run (`run.ts` 新規) — Phase 2 PR10 の Zhang-Suen thinning を再利用、外形ループ run から中心線 polyline へ、`disableMedialAxis` 互換フラグ
+>
+> 全 PR 共通: テスト 370 → 399 (累計 +29) / npx tsc --noEmit pass / npm run build pass / lint warning 0 増。
+> Phase 4 機能はデフォルト ON。`disableAutoSplit` / `disableMedialAxis` で UI から旧経路に戻せる。
+> Forking points for Phase 5: 細線が medial-axis 1 本になる効果のブラウザ visual 確認 (Claude Code では visual 検証不可)、satin の S 字 / 渦巻きで rail 抽出が破綻するケースの medial-axis 軸採用 (§3.3)、tatami fill のランダム化 (§5.3)。
+
 ステッチの**見た目品質**を業務ソフト同等のレベルに引き上げる。
 
 ## 1. 目的

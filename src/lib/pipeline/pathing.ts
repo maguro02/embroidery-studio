@@ -5,6 +5,7 @@
 
 import type {
   BranchGroup,
+  EmbroideryDesign,
   EmbroideryObject,
   Point2D,
   Shape,
@@ -149,6 +150,110 @@ export function chooseEntryExit(
     entry: mkEP(obj.id, outer[entryIdx], entryIdx),
     exit: mkEP(obj.id, outer[exitIdx], exitIdx),
   };
+}
+
+/**
+ * Phase 3 §4.1 訪問順最適化。`design.objects` を以下の手順で再採番した新 Design を返す。
+ *
+ *   Step A: colorIndex 昇順で stable group 化
+ *   Step B: 各色グループ内で findBranches を呼ぶ
+ *   Step C: 色 anchor を引き継ぎつつ、branch group 間/内とも nearest-neighbor で順序付け
+ *   Step D: `locked: true` の object は元の order を保持し、再採番されない (衝突回避)
+ *
+ * - 入力 `design` / `objects` は mutate しない
+ * - 出力 `objects` は入力と同じ要素数・同じ id 集合、`order` と配列順のみ変化
+ * - 出力 `objects` は `order` 昇順でソート済み
+ * - 空 `objects` なら `{ ...design, objects: [] }` を返す
+ *
+ * 計算量: O(N²) (`findBranches` 内の `shapesTouch` ペア走査が支配的)。object 数 < 50 想定。
+ */
+export function optimizeOrder(design: EmbroideryDesign): EmbroideryDesign {
+  if (design.objects.length === 0) return { ...design, objects: [] };
+  const cloned = design.objects.map((o) => ({ ...o }));
+  const locked = cloned.filter((o) => o.locked === true);
+  const movable = cloned.filter((o) => o.locked !== true);
+  const lockedOrders = new Set(locked.map((o) => o.order));
+
+  // movable を color → branch group → branch 内 NN の順で並べる
+  const ordered: EmbroideryObject[] = [];
+  if (movable.length > 0) {
+    const colors = [...new Set(movable.map((o) => o.colorIndex))].sort(
+      (a, b) => a - b,
+    );
+    let anchor: Point2D = [0, 0];
+    for (const ci of colors) {
+      const colorObjs = movable.filter((o) => o.colorIndex === ci);
+      const groups = findBranches(colorObjs);
+      const idMap = new Map(colorObjs.map((o) => [o.id, o]));
+      // branch group 間も nearest-neighbor
+      const remainingGroups = [...groups];
+      while (remainingGroups.length > 0) {
+        let bestGI = 0;
+        let bestD = Infinity;
+        for (let gi = 0; gi < remainingGroups.length; gi++) {
+          const groupObjs = remainingGroups[gi].objectIds
+            .map((id) => idMap.get(id)!)
+            .filter(Boolean);
+          // group 内の最近 entry までの距離を group 評価値とする
+          for (const obj of groupObjs) {
+            const ee = chooseEntryExit(obj, anchor);
+            const d = distSq(ee.entry.pt, anchor);
+            if (d < bestD) {
+              bestD = d;
+              bestGI = gi;
+            }
+          }
+        }
+        const pickedGroup = remainingGroups.splice(bestGI, 1)[0];
+        const groupObjs = pickedGroup.objectIds
+          .map((id) => idMap.get(id)!)
+          .filter(Boolean);
+        const route = routeBranchGroup(groupObjs, anchor);
+        ordered.push(...route.orderedObjects);
+        anchor = route.lastExit;
+      }
+    }
+  }
+
+  // movable に order を採番 (locked の order をスキップして衝突回避)
+  let counter = 0;
+  const nextOrder = (): number => {
+    while (lockedOrders.has(counter)) counter++;
+    return counter++;
+  };
+  for (const obj of ordered) {
+    obj.order = nextOrder();
+  }
+
+  const all = [...ordered, ...locked].sort((a, b) => a.order - b.order);
+  return { ...design, objects: all };
+}
+
+function routeBranchGroup(
+  groupObjects: EmbroideryObject[],
+  prevAnchor: Point2D,
+): { orderedObjects: EmbroideryObject[]; lastExit: Point2D } {
+  const remaining = [...groupObjects];
+  const orderedObjects: EmbroideryObject[] = [];
+  let anchor = prevAnchor;
+  while (remaining.length > 0) {
+    let bestIdx = 0;
+    let bestD = Infinity;
+    let bestExit: Point2D = anchor;
+    for (let i = 0; i < remaining.length; i++) {
+      const ee = chooseEntryExit(remaining[i], anchor);
+      const d = distSq(ee.entry.pt, anchor);
+      if (d < bestD) {
+        bestD = d;
+        bestIdx = i;
+        bestExit = ee.exit.pt;
+      }
+    }
+    const picked = remaining.splice(bestIdx, 1)[0];
+    orderedObjects.push(picked);
+    anchor = bestExit;
+  }
+  return { orderedObjects, lastExit: anchor };
 }
 
 // --- private helpers ---

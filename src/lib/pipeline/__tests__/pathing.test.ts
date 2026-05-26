@@ -3,9 +3,16 @@ import {
   shapesTouch,
   findBranches,
   chooseEntryExit,
+  optimizeOrder,
   type EdgePoint,
 } from "../pathing";
-import type { BranchGroup, EmbroideryObject, Point2D, Shape } from "../types";
+import type {
+  BranchGroup,
+  EmbroideryDesign,
+  EmbroideryObject,
+  Point2D,
+  Shape,
+} from "../types";
 
 function makeObj(
   id: string,
@@ -409,5 +416,229 @@ describe("chooseEntryExit (fill)", () => {
     const r = chooseEntryExit(obj, [15, 15]);
     expect(r.entry.pt).toEqual([10, 10]);
     expect(r.exit.pt).toEqual([0, 0]);
+  });
+});
+
+const fillBox = (
+  id: string,
+  x: number,
+  y: number,
+  size = 4,
+  colorIndex = 0,
+): EmbroideryObject => ({
+  id,
+  kind: "fill",
+  colorIndex,
+  rgb: [0, 0, 0],
+  shape: {
+    outer: [
+      [x, y],
+      [x + size, y],
+      [x + size, y + size],
+      [x, y + size],
+    ],
+    holes: [],
+  },
+  props: { densityMm: 0.4, maxStitchMm: 7 },
+  order: 0,
+});
+
+describe("optimizeOrder — 単一色直線配置", () => {
+  it("入力 [right, middle, left] でも結果は order [left=0, middle=1, right=2]", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 20,
+      fabric: { kind: "denim" } as never,
+      objects: [
+        { ...fillBox("right", 60, 0), order: 0 },
+        { ...fillBox("middle", 30, 0), order: 1 },
+        { ...fillBox("left", 0, 0), order: 2 },
+      ],
+    };
+    const r = optimizeOrder(design);
+    const ids = r.objects
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((o) => o.id);
+    expect(ids).toEqual(["left", "middle", "right"]);
+  });
+
+  it("出力 objects は order 昇順でソート済み", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 20,
+      fabric: { kind: "denim" } as never,
+      objects: [
+        { ...fillBox("c", 20, 0), order: 0 },
+        { ...fillBox("a", 0, 0), order: 1 },
+        { ...fillBox("b", 10, 0), order: 2 },
+      ],
+    };
+    const r = optimizeOrder(design);
+    for (let i = 1; i < r.objects.length; i++) {
+      expect(r.objects[i].order).toBeGreaterThan(r.objects[i - 1].order);
+    }
+  });
+
+  it("入力 design / objects を mutate しない", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 20,
+      fabric: { kind: "denim" } as never,
+      objects: [
+        { ...fillBox("a", 0, 0), order: 0 },
+        { ...fillBox("b", 50, 0), order: 1 },
+      ],
+    };
+    const snapshot = JSON.parse(JSON.stringify(design));
+    optimizeOrder(design);
+    expect(design).toEqual(snapshot);
+  });
+
+  it("空 objects → 空配列", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 10,
+      heightMm: 10,
+      fabric: { kind: "denim" } as never,
+      objects: [],
+    };
+    expect(optimizeOrder(design).objects).toEqual([]);
+  });
+
+  it("id 集合は完全保持", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 20,
+      fabric: { kind: "denim" } as never,
+      objects: [
+        { ...fillBox("a", 10, 0), order: 0 },
+        { ...fillBox("b", 0, 0), order: 1 },
+        { ...fillBox("c", 20, 0), order: 2 },
+      ],
+    };
+    const r = optimizeOrder(design);
+    expect(r.objects).toHaveLength(3);
+    expect(new Set(r.objects.map((o) => o.id))).toEqual(
+      new Set(["a", "b", "c"]),
+    );
+  });
+});
+
+describe("optimizeOrder — 色境界保護", () => {
+  it("colorIndex 順に block 化 (同色をまたいで別色を挟まない)", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 20,
+      fabric: { kind: "denim" } as never,
+      objects: [
+        { ...fillBox("c0-far", 90, 0, 4, 0), order: 0 },
+        { ...fillBox("c1-near", 10, 0, 4, 1), order: 1 },
+        { ...fillBox("c0-near", 0, 0, 4, 0), order: 2 },
+      ],
+    };
+    const r = optimizeOrder(design);
+    const sorted = r.objects.slice().sort((a, b) => a.order - b.order);
+    expect(sorted.map((o) => o.colorIndex)).toEqual([0, 0, 1]);
+    const c0 = sorted.filter((o) => o.colorIndex === 0).map((o) => o.id);
+    expect(c0).toEqual(["c0-near", "c0-far"]);
+  });
+});
+
+describe("optimizeOrder — locked 保持", () => {
+  it("locked=true の object は元の order を保持し、再採番されない", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 20,
+      fabric: { kind: "denim" } as never,
+      objects: [
+        { ...fillBox("locked-mid", 30, 0), order: 5, locked: true },
+        { ...fillBox("a", 0, 0), order: 1 },
+        { ...fillBox("b", 60, 0), order: 2 },
+      ],
+    };
+    const r = optimizeOrder(design);
+    const locked = r.objects.find((o) => o.id === "locked-mid")!;
+    expect(locked.order).toBe(5);
+    expect(locked.locked).toBe(true);
+
+    const a = r.objects.find((o) => o.id === "a")!;
+    const b = r.objects.find((o) => o.id === "b")!;
+    expect(a.order).not.toBe(5);
+    expect(b.order).not.toBe(5);
+    expect(a.order).not.toBe(b.order);
+  });
+
+  it("全 object が locked なら元の order を保持", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 20,
+      fabric: { kind: "denim" } as never,
+      objects: [
+        { ...fillBox("a", 50, 0), order: 10, locked: true },
+        { ...fillBox("b", 0, 0), order: 20, locked: true },
+      ],
+    };
+    const r = optimizeOrder(design);
+    expect(r.objects.find((o) => o.id === "a")!.order).toBe(10);
+    expect(r.objects.find((o) => o.id === "b")!.order).toBe(20);
+  });
+
+  it("locked と非 locked の order が衝突しない", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 20,
+      fabric: { kind: "denim" } as never,
+      objects: [
+        { ...fillBox("L", 50, 0), order: 0, locked: true },
+        { ...fillBox("a", 0, 0), order: 1 },
+        { ...fillBox("b", 10, 0), order: 2 },
+      ],
+    };
+    const r = optimizeOrder(design);
+    const orders = r.objects.map((o) => o.order);
+    expect(new Set(orders).size).toBe(orders.length);
+  });
+});
+
+describe("optimizeOrder — branch group 連携", () => {
+  it("接触する 2 object は同じ branch group 内で連続 order される", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 20,
+      fabric: { kind: "denim" } as never,
+      objects: [
+        { ...fillBox("a", 0, 0, 10), order: 0 },
+        { ...fillBox("b", 10.2, 0, 10), order: 1 },
+        { ...fillBox("c", 40, 0, 5), order: 2 },
+      ],
+    };
+    const groups = findBranches(design.objects);
+    expect(groups).toHaveLength(2);
+
+    const r = optimizeOrder(design);
+    const sorted = r.objects.slice().sort((x, y) => x.order - y.order);
+    const ids = sorted.map((o) => o.id);
+    const idxA = ids.indexOf("a");
+    const idxB = ids.indexOf("b");
+    expect(Math.abs(idxA - idxB)).toBe(1);
+  });
+
+  it("複数 branch group が同色内で順序付けされる (group 間も NN)", () => {
+    const design: EmbroideryDesign = {
+      widthMm: 100,
+      heightMm: 50,
+      fabric: { kind: "denim" } as never,
+      objects: [
+        { ...fillBox("a", 0, 0, 5), order: 0 },
+        { ...fillBox("b", 5.2, 0, 5), order: 1 },
+        { ...fillBox("c", 60, 0, 5), order: 2 },
+      ],
+    };
+    const r = optimizeOrder(design);
+    const sorted = r.objects
+      .slice()
+      .sort((x, y) => x.order - y.order)
+      .map((o) => o.id);
+    expect(sorted).toEqual(["a", "b", "c"]);
   });
 });

@@ -260,6 +260,8 @@ describe("designStore — applyOptimizeOrder (Phase 5 PR22)", () => {
       design: makeDesign(["a", "b"]),
       selectedObjectId: null,
       editMode: "select",
+      history: null,
+      visualization: { showTravel: false, showJump: false, showTrim: false },
     });
     const before = designStore.getState().design;
     designStore.getState().applyOptimizeOrder();
@@ -268,5 +270,88 @@ describe("designStore — applyOptimizeOrder (Phase 5 PR22)", () => {
     expect(after).not.toBe(before);
     // 中身の id 集合は同じ
     expect(after!.objects.map((o) => o.id).sort()).toEqual(["a", "b"]);
+  });
+});
+
+describe("designStore — undo / redo (Phase 5 PR24)", () => {
+  beforeEach(() => {
+    designStore.setState({
+      design: null,
+      selectedObjectId: null,
+      editMode: "select",
+      history: null,
+      visualization: { showTravel: false, showJump: false, showTrim: false },
+    });
+  });
+
+  it("setDesign で history が新規作成される", () => {
+    designStore.getState().setDesign(makeDesign(["a"]));
+    const h = designStore.getState().history;
+    expect(h).not.toBe(null);
+    expect(h!.past).toEqual([]);
+    expect(h!.future).toEqual([]);
+  });
+
+  it("updateObject 後に undo で前状態に戻り、redo で再度新状態に進める", () => {
+    const { setDesign } = designStore.getState();
+    setDesign(makeDesign(["a"]));
+    const beforeUpdate = designStore.getState().design;
+    designStore.getState().updateObject("a", {
+      props: { densityMm: 0.5, maxStitchMm: 7 },
+    });
+    const afterUpdate = designStore.getState().design;
+    expect(afterUpdate!.objects[0].props.densityMm).toBe(0.5);
+
+    designStore.getState().undo();
+    expect(designStore.getState().design).toEqual(beforeUpdate);
+
+    designStore.getState().redo();
+    expect(designStore.getState().design).toEqual(afterUpdate);
+  });
+
+  it("undo 不能な状態 (past 空) は no-op", () => {
+    designStore.getState().setDesign(makeDesign(["a"]));
+    const before = designStore.getState();
+    designStore.getState().undo();
+    // design/history どちらも変化なし
+    expect(designStore.getState().design).toBe(before.design);
+    expect(designStore.getState().history).toBe(before.history);
+  });
+
+  it("design=null での undo/redo は no-op (throw しない)", () => {
+    designStore.setState({ design: null, history: null });
+    expect(() => designStore.getState().undo()).not.toThrow();
+    expect(() => designStore.getState().redo()).not.toThrow();
+  });
+
+  it("reorderObjects / removeObject / applyOptimizeOrder も history に積まれる", () => {
+    designStore.getState().setDesign(makeDesign(["a", "b", "c"]));
+    expect(designStore.getState().history!.past.length).toBe(0);
+    designStore.getState().reorderObjects(["c", "a", "b"]);
+    expect(designStore.getState().history!.past.length).toBe(1);
+    designStore.getState().removeObject("a");
+    expect(designStore.getState().history!.past.length).toBe(2);
+    designStore.getState().applyOptimizeOrder();
+    expect(designStore.getState().history!.past.length).toBe(3);
+  });
+});
+
+describe("designStore — visualization (Phase 5 PR24)", () => {
+  it("setVisualization で flag を patch できる", () => {
+    designStore.setState({
+      visualization: { showTravel: false, showJump: false, showTrim: false },
+    });
+    designStore.getState().setVisualization({ showTravel: true });
+    expect(designStore.getState().visualization).toEqual({
+      showTravel: true,
+      showJump: false,
+      showTrim: false,
+    });
+    designStore.getState().setVisualization({ showJump: true, showTrim: true });
+    expect(designStore.getState().visualization).toEqual({
+      showTravel: true,
+      showJump: true,
+      showTrim: true,
+    });
   });
 });

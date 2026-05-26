@@ -13,14 +13,33 @@
 import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
 import { optimizeOrder } from "@/lib/pipeline/pathing";
+import {
+  canRedo as historyCanRedo,
+  canUndo as historyCanUndo,
+  createHistory,
+  type History,
+  pushHistory,
+  redo as historyRedo,
+  undo as historyUndo,
+} from "@/lib/design/history";
 import type { EmbroideryDesign, EmbroideryObject } from "@/lib/pipeline/types";
 
 export type EditMode = "select" | "node" | "pen";
+
+export type VisualizationFlags = {
+  showTravel: boolean;
+  showJump: boolean;
+  showTrim: boolean;
+};
 
 export type DesignState = {
   design: EmbroideryDesign | null;
   selectedObjectId: string | null;
   editMode: EditMode;
+  /** Phase 5 PR24 undo/redo 用 history。design=null のとき null。 */
+  history: History | null;
+  /** Phase 5 PR24 travel/jump/trim 可視化トグル。 */
+  visualization: VisualizationFlags;
 };
 
 export type DesignActions = {
@@ -36,6 +55,12 @@ export type DesignActions = {
   removeObject: (id: string) => void;
   /** Phase 3 PR14 の optimizeOrder を design に適用 (locked は元 order を保持)。design=null は no-op。 */
   applyOptimizeOrder: () => void;
+  /** Phase 5 PR24 undo: history.past 末尾に戻る。past 空 / design=null は no-op。 */
+  undo: () => void;
+  /** Phase 5 PR24 redo: history.future 先頭に進む。future 空 / design=null は no-op。 */
+  redo: () => void;
+  /** Phase 5 PR24 visualization flag patch。 */
+  setVisualization: (patch: Partial<VisualizationFlags>) => void;
 };
 
 export type DesignStore = DesignState & DesignActions;
@@ -44,6 +69,8 @@ const initialState: DesignState = {
   design: null,
   selectedObjectId: null,
   editMode: "select",
+  history: null,
+  visualization: { showTravel: false, showJump: false, showTrim: false },
 };
 
 /**
@@ -60,9 +87,12 @@ export const designStore = createStore<DesignStore>((set, get) => ({
       design !== null &&
       prev.selectedObjectId !== null &&
       design.objects.some((o) => o.id === prev.selectedObjectId);
+    // setDesign は「初期化 / ファイル読込 / 大きな差し替え」の入口。
+    // history は新規作成 (= 過去を捨てる)。
     set({
       design,
       selectedObjectId: stillExists ? prev.selectedObjectId : null,
+      history: design ? createHistory(design) : null,
     });
   },
 
@@ -80,13 +110,17 @@ export const designStore = createStore<DesignStore>((set, get) => ({
   setEditMode: (mode) => set({ editMode: mode }),
 
   updateObject: (id, patch) => {
-    const { design } = get();
+    const { design, history } = get();
     if (design === null) return;
     const idx = design.objects.findIndex((o) => o.id === id);
     if (idx === -1) return;
     const next = design.objects.slice();
     next[idx] = { ...next[idx], ...patch, id: next[idx].id };
-    set({ design: { ...design, objects: next } });
+    const nextDesign: EmbroideryDesign = { ...design, objects: next };
+    set({
+      design: nextDesign,
+      history: history ? pushHistory(history, nextDesign) : createHistory(nextDesign),
+    });
   },
 
   reorderObjects: (newOrder) => {
@@ -111,24 +145,54 @@ export const designStore = createStore<DesignStore>((set, get) => ({
       ...lookup.get(id)!,
       order: i,
     }));
-    set({ design: { ...design, objects: reordered } });
+    const nextDesign: EmbroideryDesign = { ...design, objects: reordered };
+    const { history } = get();
+    set({
+      design: nextDesign,
+      history: history ? pushHistory(history, nextDesign) : createHistory(nextDesign),
+    });
   },
 
   removeObject: (id) => {
-    const { design, selectedObjectId } = get();
+    const { design, selectedObjectId, history } = get();
     if (design === null) return;
     const next = design.objects.filter((o) => o.id !== id);
     if (next.length === design.objects.length) return; // 不在 id は no-op
+    const nextDesign: EmbroideryDesign = { ...design, objects: next };
     set({
-      design: { ...design, objects: next },
+      design: nextDesign,
       selectedObjectId: selectedObjectId === id ? null : selectedObjectId,
+      history: history ? pushHistory(history, nextDesign) : createHistory(nextDesign),
     });
   },
 
   applyOptimizeOrder: () => {
-    const { design } = get();
+    const { design, history } = get();
     if (design === null) return;
-    set({ design: optimizeOrder(design) });
+    const nextDesign = optimizeOrder(design);
+    set({
+      design: nextDesign,
+      history: history ? pushHistory(history, nextDesign) : createHistory(nextDesign),
+    });
+  },
+
+  undo: () => {
+    const { history } = get();
+    if (!history || !historyCanUndo(history)) return;
+    const next = historyUndo(history);
+    set({ history: next, design: next.current });
+  },
+
+  redo: () => {
+    const { history } = get();
+    if (!history || !historyCanRedo(history)) return;
+    const next = historyRedo(history);
+    set({ history: next, design: next.current });
+  },
+
+  setVisualization: (patch) => {
+    const { visualization } = get();
+    set({ visualization: { ...visualization, ...patch } });
   },
 }));
 

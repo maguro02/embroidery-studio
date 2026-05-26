@@ -70,6 +70,9 @@ export type EmbroideryObject = {
   props: ObjectProps;
   order: number;
   locked?: boolean;
+  /** Phase 5 PR22: UI 上の visibility 切替。undefined は表示 (= true) 扱い。
+   *  renderer は visibility を見ないため stitch 生成には影響しない (UI 専用)。 */
+  visible?: boolean;
 };
 
 export type FabricKind =

@@ -12,6 +12,7 @@
 
 import { createStore } from "zustand/vanilla";
 import { useStore } from "zustand";
+import { optimizeOrder } from "@/lib/pipeline/pathing";
 import type { EmbroideryDesign, EmbroideryObject } from "@/lib/pipeline/types";
 
 export type EditMode = "select" | "node" | "pen";
@@ -31,6 +32,10 @@ export type DesignActions = {
     patch: Partial<Omit<EmbroideryObject, "id">>,
   ) => void;
   reorderObjects: (newOrder: string[]) => void;
+  /** 指定 id の object を削除。selectedObjectId が消えれば null にリセット。design=null は no-op。 */
+  removeObject: (id: string) => void;
+  /** Phase 3 PR14 の optimizeOrder を design に適用 (locked は元 order を保持)。design=null は no-op。 */
+  applyOptimizeOrder: () => void;
 };
 
 export type DesignStore = DesignState & DesignActions;
@@ -107,6 +112,23 @@ export const designStore = createStore<DesignStore>((set, get) => ({
       order: i,
     }));
     set({ design: { ...design, objects: reordered } });
+  },
+
+  removeObject: (id) => {
+    const { design, selectedObjectId } = get();
+    if (design === null) return;
+    const next = design.objects.filter((o) => o.id !== id);
+    if (next.length === design.objects.length) return; // 不在 id は no-op
+    set({
+      design: { ...design, objects: next },
+      selectedObjectId: selectedObjectId === id ? null : selectedObjectId,
+    });
+  },
+
+  applyOptimizeOrder: () => {
+    const { design } = get();
+    if (design === null) return;
+    set({ design: optimizeOrder(design) });
   },
 }));
 

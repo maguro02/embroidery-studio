@@ -15,6 +15,7 @@ import { applyPullCompensation } from "./compensation";
 import { emitTieIn, emitTieOff } from "./lockstitch";
 import { intersectScanline } from "./scanline";
 import { tatamiBrick } from "./fill";
+import { brickSplit, extractRails, renderSatin2Rail } from "./satin";
 import { generateUnderlayStitches } from "./underlay";
 import type { TrimPolicy } from "./policy";
 
@@ -106,6 +107,9 @@ export type RenderOptions = {
   disableCompensation?: boolean;
   /** Phase 2 §6 Lockstitch (tie-in/off) をスキップ (デバッグ / Phase 1 互換用、UI 非露出)。 */
   disableLockstitch?: boolean;
+  /** Phase 4 §3-4 2-rail satin + brick auto-split を無効化 (デバッグ / Phase 1-3 互換用)。
+   *  true のとき renderSatinTopOnly は旧 satinStitches (PCA 単一長軸) 経路に戻る。 */
+  disableAutoSplit?: boolean;
   /** Phase 3 §7 distance-based routing (travel-run/jump/trim+jump)。未指定なら Phase 1/2 互換 (常に trim+jump)。 */
   policy?: TrimPolicy;
   /** renderDesign 内で per-object に注入される (renderer 側でのみ参照)。tie-in を抑制する travel-run 連結時用。 */
@@ -198,19 +202,57 @@ function renderSatinTopOnly(
     stitches: [],
   };
   const outer = obj.shape.outer as Polygon;
-  const { longAxis, center } = analyzeShape(outer);
-  const pts = satinStitches(outer, ctx.opts.stitchDensityMm, longAxis, center);
+  const maxStitchMm = ctx.opts.maxStitchMm ?? DEFAULT_MAX_STITCH_MM;
+  const trimThresholdMm = ctx.opts.trimThresholdMm ?? DEFAULT_TRIM_THRESHOLD_MM;
+
+  let pts: Point[];
+  if (ctx.opts.disableAutoSplit) {
+    // 互換経路: Phase 1-3 と完全一致の satinStitches (PCA 単一長軸)
+    const { longAxis, center } = analyzeShape(outer);
+    pts = satinStitches(outer, ctx.opts.stitchDensityMm, longAxis, center);
+  } else {
+    // 新経路 (Phase 4): 2-rail satin + brick auto-split
+    const rails = extractRails(obj.shape);
+    const zigzag = renderSatin2Rail(rails, ctx.opts.stitchDensityMm, maxStitchMm);
+    pts = applyBrickSplit(zigzag, maxStitchMm);
+  }
+
   if (pts.length === 0) return block.stitches;
   appendStitchesWithJumps(
     block,
     pts,
     "satin",
     obj.colorIndex,
-    ctx.opts.maxStitchMm ?? DEFAULT_MAX_STITCH_MM,
-    ctx.opts.trimThresholdMm ?? DEFAULT_TRIM_THRESHOLD_MM,
+    maxStitchMm,
+    trimThresholdMm,
     true,
   );
   return block.stitches;
+}
+
+/**
+ * renderSatin2Rail のジグザグ出力を 2 点ペアに区切り、ペアごとに brickSplit
+ * を適用して中間点を挿入した 1 本の Point[] に flatten する。
+ * 隣接ペアで端点が重複する場合は除去する。
+ */
+function applyBrickSplit(zigzag: Point[], maxStitchMm: number): Point[] {
+  const out: Point[] = [];
+  for (let i = 0; i + 1 < zigzag.length; i += 2) {
+    const a = zigzag[i];
+    const b = zigzag[i + 1];
+    const rowIndex = i / 2;
+    const seg = brickSplit(a, b, maxStitchMm, rowIndex);
+    if (out.length > 0 && pointsClose(out[out.length - 1], seg[0])) {
+      for (let k = 1; k < seg.length; k++) out.push(seg[k]);
+    } else {
+      for (const p of seg) out.push(p);
+    }
+  }
+  return out;
+}
+
+function pointsClose(a: Point, b: Point): boolean {
+  return Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) < 1e-6;
 }
 
 function renderFillTopOnly(

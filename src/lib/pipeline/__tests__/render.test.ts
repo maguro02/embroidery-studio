@@ -920,14 +920,64 @@ describe("renderSatin", () => {
     };
     const stitches = renderSatin(obj, makeCtx());
     const satinStitches = stitches.filter((s) => s.kind === "satin");
+    // Phase 4 PR18 で 2-rail satin に切替: 同じ stitch 数 (42) を維持しつつ
+    // 最初の stitch は上 rail (y=1) から始まる (extractRails の left=上 rail 判定)
     expect(satinStitches).toHaveLength(42);
-    expect(stitches[0]).toEqual({ x: 0, y: 0, kind: "satin", colorIndex: 0 });
+    expect(stitches[0]).toEqual({ x: 0, y: 1, kind: "satin", colorIndex: 0 });
     expect(stitches[stitches.length - 1]).toEqual({
       x: 20,
-      y: 1,
+      y: 0,
       kind: "satin",
       colorIndex: 0,
     });
+  });
+
+  // Phase 4 PR18: wide satin (8mm 幅) で brick auto-split が有効化され、
+  // 1 行あたり 2 点 (端のみ) でなく中間点も挿入されて stitch 数が増えること。
+  it("wide satin (20x8mm, maxStitch=3) で brick split が中間点を挿入し stitch 数が増える", () => {
+    const obj: EmbroideryObject = {
+      id: "0-0",
+      kind: "satin",
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      shape: { outer: [[0, 0], [20, 0], [20, 8], [0, 8]], holes: [] },
+      props: DUMMY_PROPS,
+      order: 0,
+    };
+    const newStitches = renderSatin(
+      obj,
+      makeCtx({ stitchDensityMm: 0.4, maxStitchMm: 3 }),
+    );
+    const legacyStitches = renderSatin(
+      obj,
+      makeCtx({
+        stitchDensityMm: 0.4,
+        maxStitchMm: 3,
+        disableAutoSplit: true,
+      }),
+    );
+    // brick split で 8mm > maxStitch 3 を分割するため、新経路の stitch 数は
+    // 旧経路より多い (実数は appendStitchesWithJumps の dedup + 分割と相互作用)。
+    expect(newStitches.length).toBeGreaterThan(legacyStitches.length * 1.2);
+  });
+
+  it("disableAutoSplit=true で旧 satinStitches 経路と stitch 数が完全一致", () => {
+    const obj: EmbroideryObject = {
+      id: "0-0",
+      kind: "satin",
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      shape: { outer: [[0, 0], [12, 0], [12, 3], [0, 3]], holes: [] },
+      props: DUMMY_PROPS,
+      order: 0,
+    };
+    const legacyStitches = renderSatin(
+      obj,
+      makeCtx({ stitchDensityMm: 0.5, disableAutoSplit: true }),
+    );
+    // 12mm 長 / density 0.5 → 25 行 × 2 端点 = 50 stitches (= 旧 satinStitches)
+    const legacyTop = legacyStitches.filter((s) => s.kind === "satin");
+    expect(legacyTop.length).toBe(50);
   });
 });
 
@@ -1258,7 +1308,8 @@ describe("renderDesign", () => {
     expect(b1.rgb).toEqual([0, 255, 0]);
     expect(b1.stitches).toHaveLength(53);
     expect(countByKind(b1.stitches)).toEqual({ satin: 52, stop: 1 });
-    expect(b1.stitches[0]).toEqual({ x: 15, y: 0, kind: "satin", colorIndex: 1 });
+    // Phase 4 PR18 で 2-rail satin に切替: 最初の stitch は上 rail (y=0.8) 側に出る
+    expect(b1.stitches[0]).toEqual({ x: 15, y: 0.8, kind: "satin", colorIndex: 1 });
 
     // block 2: run (極細線)
     const b2 = pattern.blocks[2];

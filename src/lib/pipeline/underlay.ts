@@ -1,12 +1,16 @@
 // Phase 2 計画書 §3 Underlay。
-// PR10 スコープ: edge-run / center-run の基礎 2 種。
+// PR10 + PR11 完了状態:
 //   - edgeRunUnderlay: 外形を内側オフセット + 各 hole を外側オフセットして resample
 //   - centerRunUnderlay: Zhang-Suen thinning で medial-axis polyline を抽出
+//   - fillUnderlay: 表縫いに直交方向の粗 scanline (fill 用)
+//   - zigzagUnderlay: 細長 satin の両 rail 間を spacing で往復する単一 polyline
 // 純関数: Shape + 数値のみを入力とし、EmbroideryObject / UnderlayConfig には触らない。
-// zigzag / fill underlay は PR11、generateUnderlayStitches 統合は PR12 で行う。
+// generateUnderlayStitches 統合は PR12 で行う。
 
 import type { Point2D, Polygon, Shape } from "./types";
+import { analyzeShape } from "./geometry";
 import { offsetPolygon } from "./polygon-offset";
+import { intersectScanline } from "./scanline";
 import { pointInPolygon } from "./vectorize";
 
 const PX_PER_MM = 10; // center-run の rasterize 解像度 (1px = 0.1mm)
@@ -76,6 +80,99 @@ export function centerRunUnderlay(
     raster.offsetY + (py + 0.5) / PX_PER_MM,
   ]);
   return resampleOpenLine(pathMm, stitchLenMm);
+}
+
+/**
+ * Fill underlay (Phase 2 §3.1 fill object 用)。
+ *
+ * 表縫いの方向 `angleDeg` に対して **直交方向** (= `angleDeg + 90°`) で粗い scanline を生成。
+ * `spacingMm` 間隔で走査し、各スキャンラインが outer/holes と交わる区間を 2 点セグメント
+ * (`[startPoint, endPoint]`) として返す。穴の中には点が落ちないよう even-odd でペア化する。
+ *
+ * - 戻り値 `Point2D[][]`: 各要素は 2 点ちょうどの線分 (`segments[i].length === 2`)
+ * - `outer.length < 3` / `spacingMm <= 0` で空配列
+ * - 各 scanline の交点が奇数なら末尾を切り捨てて偶数に揃える (退化保護)
+ */
+export function fillUnderlay(
+  shape: Shape,
+  angleDeg: number,
+  spacingMm: number,
+): Point2D[][] {
+  if (shape.outer.length < 3 || spacingMm <= 0) return [];
+  // 直交方向に走らせる: stitch dir = angleDeg + 90°
+  const rad = ((angleDeg + 90) * Math.PI) / 180;
+  const dir: [number, number] = [Math.cos(rad), Math.sin(rad)];
+  const perp: [number, number] = [-dir[1], dir[0]];
+
+  let minS = Infinity,
+    maxS = -Infinity;
+  for (const [x, y] of shape.outer) {
+    const s = x * perp[0] + y * perp[1];
+    if (s < minS) minS = s;
+    if (s > maxS) maxS = s;
+  }
+
+  const rings: Polygon[] = [shape.outer, ...shape.holes];
+  const segments: Point2D[][] = [];
+  for (let s = minS; s <= maxS + 1e-9; s += spacingMm) {
+    const ox = perp[0] * s;
+    const oy = perp[1] * s;
+    const crossings = intersectScanline(rings, ox, oy, dir);
+    if (crossings.length < 2) continue;
+    crossings.sort((a, b) => a - b);
+    if (crossings.length % 2 !== 0) crossings.pop();
+    for (let i = 0; i < crossings.length; i += 2) {
+      const a = crossings[i];
+      const b = crossings[i + 1];
+      segments.push([
+        [ox + dir[0] * a, oy + dir[1] * a],
+        [ox + dir[0] * b, oy + dir[1] * b],
+      ]);
+    }
+  }
+  return segments;
+}
+
+/**
+ * Zigzag underlay (Phase 2 §3.1 幅広 satin 用)。
+ *
+ * PCA で長軸を取り、両 rail (= 短軸方向に `±(shortSide/2 - insetMm)`) の間を
+ * `spacingMm` 刻みで往復する **単一 polyline** を返す。点は左 rail / 右 rail を交互に並ぶ。
+ *
+ * - 退化条件 (`shortSide/2 <= insetMm`) では空配列
+ * - `shape.outer.length < 3` / `spacingMm <= 0` で空配列
+ * - `shape.holes` は無視 (satin underlay 用途のため)
+ */
+export function zigzagUnderlay(
+  shape: Shape,
+  spacingMm: number,
+  insetMm: number,
+): Point2D[] {
+  if (shape.outer.length < 3 || spacingMm <= 0) return [];
+  const { shortSide, longAxis, center } = analyzeShape(shape.outer);
+  const halfWidth = shortSide / 2 - insetMm;
+  if (halfWidth <= 0) return [];
+  const shortAxis: [number, number] = [-longAxis[1], longAxis[0]];
+
+  let minL = Infinity,
+    maxL = -Infinity;
+  for (const [x, y] of shape.outer) {
+    const l = (x - center[0]) * longAxis[0] + (y - center[1]) * longAxis[1];
+    if (l < minL) minL = l;
+    if (l > maxL) maxL = l;
+  }
+  const span = maxL - minL;
+  const steps = Math.max(1, Math.round(span / spacingMm));
+  const out: Point2D[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const l = minL + (span * i) / steps;
+    const side = i % 2 === 0 ? -halfWidth : +halfWidth;
+    out.push([
+      center[0] + longAxis[0] * l + shortAxis[0] * side,
+      center[1] + longAxis[1] * l + shortAxis[1] * side,
+    ]);
+  }
+  return out;
 }
 
 // --- private helpers ---

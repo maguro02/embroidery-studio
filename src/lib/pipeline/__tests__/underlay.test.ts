@@ -3,6 +3,8 @@ import {
   __internal,
   centerRunUnderlay,
   edgeRunUnderlay,
+  fillUnderlay,
+  zigzagUnderlay,
 } from "../underlay";
 import type { Shape } from "../types";
 
@@ -261,5 +263,172 @@ describe("edge cases", () => {
       holes: [],
     };
     expect(centerRunUnderlay(tri, 1.0).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("fillUnderlay", () => {
+  it("表縫い angle=0 (水平) に直交した垂直スキャンを spacingMm 間隔で生成", () => {
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+      ],
+      holes: [],
+    };
+    const segs = fillUnderlay(shape, 0, 3);
+    expect(segs.length).toBeGreaterThanOrEqual(3);
+    expect(segs.length).toBeLessThanOrEqual(5);
+    for (const seg of segs) {
+      expect(seg.length).toBe(2);
+      const [p0, p1] = seg;
+      expect(p0[0]).toBeCloseTo(p1[0], 4); // 垂直 = x 同一
+      const ys = [p0[1], p1[1]].sort((a, b) => a - b);
+      expect(ys[0]).toBeCloseTo(0, 4);
+      expect(ys[1]).toBeCloseTo(10, 4);
+    }
+  });
+
+  it("spacingMm を半分にすると scanline 本数がおおむね倍", () => {
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [20, 0],
+        [20, 20],
+        [0, 20],
+      ],
+      holes: [],
+    };
+    const coarse = fillUnderlay(shape, 0, 4);
+    const fine = fillUnderlay(shape, 0, 2);
+    expect(fine.length).toBeGreaterThan(coarse.length * 1.8);
+    expect(fine.length).toBeLessThan(coarse.length * 2.2);
+  });
+
+  it("穴を持つ shape では穴内部に scanline 点が落ちない", () => {
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [20, 0],
+        [20, 20],
+        [0, 20],
+      ],
+      holes: [
+        [
+          [8, 8],
+          [12, 8],
+          [12, 12],
+          [8, 12],
+        ],
+      ],
+    };
+    const segs = fillUnderlay(shape, 0, 1);
+    const pts = segs.flat();
+    const insideHole = pts.filter(
+      ([x, y]) => x > 8.5 && x < 11.5 && y > 9 && y < 11,
+    );
+    expect(insideHole.length).toBe(0);
+  });
+
+  it("spacingMm <= 0 や outer 退化で空配列", () => {
+    const sq: Shape = {
+      outer: [
+        [0, 0],
+        [10, 0],
+        [10, 10],
+        [0, 10],
+      ],
+      holes: [],
+    };
+    expect(fillUnderlay(sq, 0, 0)).toEqual([]);
+    expect(
+      fillUnderlay(
+        {
+          outer: [
+            [0, 0],
+            [1, 0],
+          ],
+          holes: [],
+        },
+        0,
+        1,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("zigzagUnderlay", () => {
+  it("幅 5mm × 長さ 30mm の satin で両 rail 間を spacingMm で往復する単一 polyline", () => {
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [30, 0],
+        [30, 5],
+        [0, 5],
+      ],
+      holes: [],
+    };
+    const pts = zigzagUnderlay(shape, 2, 0.5);
+    expect(pts.length).toBeGreaterThanOrEqual(14);
+    expect(pts.length).toBeLessThanOrEqual(18);
+    const ys = pts.map(([, y]) => y);
+    const railLow = ys.filter((y) => Math.abs(y - 0.5) < 0.15).length;
+    const railHigh = ys.filter((y) => Math.abs(y - 4.5) < 0.15).length;
+    expect(railLow + railHigh).toBe(pts.length);
+    expect(Math.abs(railLow - railHigh)).toBeLessThanOrEqual(1);
+    // 隣接点は必ず逆 rail (zigzag 性)
+    for (let i = 1; i < pts.length; i++) {
+      const prevHigh = pts[i - 1][1] > 2.5;
+      const currHigh = pts[i][1] > 2.5;
+      expect(currHigh).not.toBe(prevHigh);
+    }
+  });
+
+  it("spacingMm が小さいほどステップ数が増える", () => {
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [40, 0],
+        [40, 6],
+        [0, 6],
+      ],
+      holes: [],
+    };
+    const sparse = zigzagUnderlay(shape, 4, 0.5);
+    const dense = zigzagUnderlay(shape, 1, 0.5);
+    expect(dense.length).toBeGreaterThan(sparse.length * 3);
+  });
+
+  it("insetMm を 1.0 に増やすと rail 位置が内側に寄る", () => {
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [20, 0],
+        [20, 5],
+        [0, 5],
+      ],
+      holes: [],
+    };
+    const small = zigzagUnderlay(shape, 2, 0.5);
+    const large = zigzagUnderlay(shape, 2, 1.0);
+    const yMinSmall = Math.min(...small.map(([, y]) => y));
+    const yMinLarge = Math.min(...large.map(([, y]) => y));
+    expect(yMinLarge).toBeGreaterThan(yMinSmall);
+    expect(yMinSmall).toBeCloseTo(0.5, 1);
+    expect(yMinLarge).toBeCloseTo(1.0, 1);
+  });
+
+  it("insetMm が shortSide/2 を超えると空配列 (退化ケース)", () => {
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [20, 0],
+        [20, 2],
+        [0, 2],
+      ],
+      holes: [],
+    };
+    expect(zigzagUnderlay(shape, 2, 2.0)).toEqual([]);
   });
 });

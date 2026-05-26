@@ -66,9 +66,9 @@ export function offsetShape(
   opts?: { scale?: number },
 ): Shape {
   const outerOff = offsetPolygon(shape.outer, outerDeltaMm, opts);
-  if (outerOff === null || outerOff.length === 0) return shape;
+  if (outerOff === null || outerOff.length === 0) return cloneShape(shape);
   const newOuter = pickLargest(outerOff);
-  if (!newOuter) return shape;
+  if (!newOuter) return cloneShape(shape);
 
   const newHoles: Polygon[] = [];
   for (const hole of shape.holes) {
@@ -89,21 +89,32 @@ export function polygonsOverlap(a: Shape, b: Shape): boolean {
   if (a.outer.length < 3 || b.outer.length < 3) return false;
   if (!bboxIntersects(a.outer, b.outer)) return false;
   const scale = DEFAULT_SCALE;
-  const clipper = new ClipperLib.Clipper();
-  clipper.AddPath(toClipperPath(a.outer, scale), ClipperLib.PolyType.ptSubject, true);
-  clipper.AddPath(toClipperPath(b.outer, scale), ClipperLib.PolyType.ptClip, true);
-  const solution: Paths = [];
-  const ok = clipper.Execute(
-    ClipperLib.ClipType.ctIntersection,
-    solution,
-    ClipperLib.PolyFillType.pftNonZero,
-    ClipperLib.PolyFillType.pftNonZero,
-  );
-  if (!ok) return false;
-  return solution.some((p) => p.length >= 3);
+  try {
+    const clipper = new ClipperLib.Clipper();
+    clipper.AddPath(toClipperPath(a.outer, scale), ClipperLib.PolyType.ptSubject, true);
+    clipper.AddPath(toClipperPath(b.outer, scale), ClipperLib.PolyType.ptClip, true);
+    const solution: Paths = [];
+    const ok = clipper.Execute(
+      ClipperLib.ClipType.ctIntersection,
+      solution,
+      ClipperLib.PolyFillType.pftNonZero,
+      ClipperLib.PolyFillType.pftNonZero,
+    );
+    if (!ok) return false;
+    return solution.some((p) => p.length >= 3);
+  } catch {
+    return false;
+  }
 }
 
 // --- private helpers ---
+
+function cloneShape(shape: Shape): Shape {
+  return {
+    outer: shape.outer.map(([x, y]) => [x, y] as Point2D),
+    holes: shape.holes.map((h) => h.map(([x, y]) => [x, y] as Point2D)),
+  };
+}
 
 function toClipperPath(polygon: Polygon, scale: number): Path {
   return polygon.map(([x, y]) => ({

@@ -96,7 +96,7 @@ describe("offsetShape", () => {
     expect(hb.w).toBeCloseTo(3.6, 1);
   });
 
-  it("outer が消失する内側オフセットでは元 shape を返す (フォールバック)", () => {
+  it("outer が消失する内側オフセットでは元 shape の深いコピーを返す (フォールバック)", () => {
     const shape: Shape = {
       outer: [
         [0, 0],
@@ -108,6 +108,8 @@ describe("offsetShape", () => {
     };
     const r = offsetShape(shape, -2, 0);
     expect(r).toEqual(shape);
+    expect(r).not.toBe(shape);
+    expect(r.outer).not.toBe(shape.outer);
   });
 
   it("hole が消失したら holes 配列から落とすが outer は維持", () => {

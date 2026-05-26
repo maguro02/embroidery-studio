@@ -116,7 +116,7 @@ export function renderSatin2Rail(
   densityMm: number,
   _maxStitchMm: number,
 ): Point[] {
-  void _maxStitchMm; // Phase 4 PR18 (auto split / brickSplit) で使用するため signature 保持
+  void _maxStitchMm; // brickSplit は renderer 側 (render.ts applyBrickSplit) で呼ぶ
   const left = rails.left.slice();
   const right = rails.right.slice();
   if (left.length === 0 || right.length === 0) return [];
@@ -139,6 +139,57 @@ export function renderSatin2Rail(
   }
   return out;
 }
+
+/**
+ * Wide satin の 1 stitch (left → right) を maxStitchMm で分割し、行ごとに 1/3
+ * 位相シフト (`phase = (rowIndex % 3) / 3`) を加えて needle perforation line を
+ * 分散する (Phase 4 計画書 §4.2 / Wilcom Auto Split 相当)。
+ *
+ * - 距離 ≤ `maxStitchMm` のとき分割せず `[left, right]` をそのまま返す
+ * - 距離 > `maxStitchMm` のとき `segs = ceil(dist / maxStitchMm)` 個の中間点を
+ *   `t = clamp01(((i - 1) + phase) / segs)` で生成し、`[left, ...mid, right]`
+ *   (長さ `segs + 2`) を返す
+ *
+ * 純関数: 同一入力で同一出力。入力 Point は破壊しない。
+ */
+export function brickSplit(
+  left: Point,
+  right: Point,
+  maxStitchMm: number,
+  rowIndex: number,
+): Point[] {
+  const dx = right[0] - left[0];
+  const dy = right[1] - left[1];
+  const dist = Math.hypot(dx, dy);
+  if (dist <= maxStitchMm || maxStitchMm <= 0) {
+    return [[left[0], left[1]], [right[0], right[1]]];
+  }
+  const segs = Math.ceil(dist / maxStitchMm);
+  const phase = (((rowIndex % 3) + 3) % 3) / 3;
+  const out: Point[] = [[left[0], left[1]]];
+  for (let i = 1; i <= segs; i++) {
+    const t = clamp01(((i - 1) + phase) / segs);
+    out.push(lerp(left, right, t));
+  }
+  out.push([right[0], right[1]]);
+  return out;
+}
+
+function lerp(a: Point, b: Point, t: number): Point {
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
+function clamp01(v: number): number {
+  if (v < 0) return 0;
+  if (v > 1) return 1;
+  return v;
+}
+
+/** テスト容易性のため (brickSplit, lerp を直接呼びたい場面) */
+export const __internal = {
+  brickSplit,
+  lerp,
+};
 
 // ──────────────────────────────────────────────────────────────────────────────
 // internal helpers (export しない)

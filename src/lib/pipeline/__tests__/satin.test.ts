@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { extractRails, renderSatin2Rail, type SatinRails } from "../satin";
+import {
+  brickSplit,
+  extractRails,
+  renderSatin2Rail,
+  type SatinRails,
+} from "../satin";
 import type { Shape } from "../types";
 
 describe("extractRails — straight satin", () => {
@@ -174,5 +179,63 @@ describe("satin — purity & structure", () => {
     const rails = extractRails(shape);
     expect(Array.isArray(rails.left)).toBe(true);
     expect(Array.isArray(rails.right)).toBe(true);
+  });
+});
+
+describe("brickSplit", () => {
+  it("距離が maxStitchMm 以下のとき分割せず [left, right] を返す", () => {
+    const result = brickSplit([0, 0], [5, 0], 7, 0);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual([0, 0]);
+    expect(result[1]).toEqual([5, 0]);
+  });
+
+  it("距離が maxStitchMm ちょうどでも分割しない", () => {
+    const result = brickSplit([0, 0], [7, 0], 7, 0);
+    expect(result).toHaveLength(2);
+  });
+
+  it("行 0 (phase=0) で 8mm を maxStitchMm=3 に分割: segs+2=5 点 / 中間 t=0,1/3,2/3", () => {
+    const result = brickSplit([0, 0], [8, 0], 3, 0);
+    expect(result).toHaveLength(5);
+    expect(result[0]).toEqual([0, 0]);
+    expect(result[result.length - 1]).toEqual([8, 0]);
+    // i=1 → t=0 → (0,0)、i=2 → t=1/3 → (8/3,0)、i=3 → t=2/3 → (16/3,0)
+    expect(result[1][0]).toBeCloseTo(0, 5);
+    expect(result[2][0]).toBeCloseTo(8 / 3, 5);
+    expect(result[3][0]).toBeCloseTo(16 / 3, 5);
+  });
+
+  it("行 0/1/2 で 1/3 位相シフト: 最初の中間点 x が 0, 1, 2 にずれる (9mm/maxStitch 3)", () => {
+    const r0 = brickSplit([0, 0], [9, 0], 3, 0);
+    const r1 = brickSplit([0, 0], [9, 0], 3, 1);
+    const r2 = brickSplit([0, 0], [9, 0], 3, 2);
+    expect(r0).toHaveLength(5);
+    expect(r1).toHaveLength(5);
+    expect(r2).toHaveLength(5);
+    // i=1 (最初の中間点)
+    expect(r0[1][0]).toBeCloseTo(0, 5); // phase 0 → t=0
+    expect(r1[1][0]).toBeCloseTo(1, 5); // phase 1/3 → t=1/9 → 1
+    expect(r2[1][0]).toBeCloseTo(2, 5); // phase 2/3 → t=2/9 → 2
+  });
+
+  it("行 3 は行 0 と同位相 (周期 3)", () => {
+    const r0 = brickSplit([0, 0], [9, 0], 3, 0);
+    const r3 = brickSplit([0, 0], [9, 0], 3, 3);
+    for (let i = 0; i < r0.length; i++) {
+      expect(r3[i][0]).toBeCloseTo(r0[i][0], 5);
+      expect(r3[i][1]).toBeCloseTo(r0[i][1], 5);
+    }
+  });
+
+  it("斜め stitch でも y 成分が正しく補間される (6,8 / maxStitch 4 / 行 0)", () => {
+    const result = brickSplit([0, 0], [6, 8], 4, 0);
+    // dist=10, segs=3
+    expect(result).toHaveLength(5);
+    expect(result[result.length - 1][0]).toBeCloseTo(6, 5);
+    expect(result[result.length - 1][1]).toBeCloseTo(8, 5);
+    // i=3, t=2/3 → (4, 16/3)
+    expect(result[3][0]).toBeCloseTo(4, 5);
+    expect(result[3][1]).toBeCloseTo(16 / 3, 5);
   });
 });

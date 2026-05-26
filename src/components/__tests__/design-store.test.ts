@@ -206,3 +206,67 @@ describe("designStore — setEditMode", () => {
     expect(designStore.getState().editMode).toBe("select");
   });
 });
+
+describe("designStore — removeObject (Phase 5 PR22)", () => {
+  beforeEach(() => {
+    designStore.setState({
+      design: makeDesign(["a", "b", "c"]),
+      selectedObjectId: null,
+      editMode: "select",
+    });
+  });
+
+  it("指定 id を削除し、他は順序保持", () => {
+    designStore.getState().removeObject("b");
+    const ids = designStore.getState().design!.objects.map((o) => o.id);
+    expect(ids).toEqual(["a", "c"]);
+  });
+
+  it("選択中 id を削除すると selectedObjectId が null", () => {
+    designStore.getState().setSelectedObjectId("b");
+    designStore.getState().removeObject("b");
+    expect(designStore.getState().selectedObjectId).toBe(null);
+  });
+
+  it("選択中以外を削除しても selectedObjectId は保持", () => {
+    designStore.getState().setSelectedObjectId("a");
+    designStore.getState().removeObject("c");
+    expect(designStore.getState().selectedObjectId).toBe("a");
+  });
+
+  it("存在しない id は no-op", () => {
+    const before = designStore.getState().design;
+    designStore.getState().removeObject("zzz");
+    expect(designStore.getState().design).toBe(before);
+  });
+
+  it("design=null は no-op (throw しない)", () => {
+    designStore.setState({ design: null });
+    expect(() => designStore.getState().removeObject("a")).not.toThrow();
+  });
+});
+
+describe("designStore — applyOptimizeOrder (Phase 5 PR22)", () => {
+  it("design=null は no-op", () => {
+    designStore.setState({ design: null });
+    expect(() => designStore.getState().applyOptimizeOrder()).not.toThrow();
+    expect(designStore.getState().design).toBe(null);
+  });
+
+  it("design が設定されていれば optimizeOrder を呼んで差し替える", () => {
+    // optimizeOrder の純粋性は pathing.test.ts でカバー済み。
+    // 本ケースでは design が新オブジェクトに差し替わることだけ確認。
+    designStore.setState({
+      design: makeDesign(["a", "b"]),
+      selectedObjectId: null,
+      editMode: "select",
+    });
+    const before = designStore.getState().design;
+    designStore.getState().applyOptimizeOrder();
+    const after = designStore.getState().design;
+    // 参照は異なる (optimizeOrder は新 design を返す)
+    expect(after).not.toBe(before);
+    // 中身の id 集合は同じ
+    expect(after!.objects.map((o) => o.id).sort()).toEqual(["a", "b"]);
+  });
+});

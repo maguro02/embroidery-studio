@@ -315,6 +315,11 @@ describe("buildObjects — generateStitches との整合性", () => {
       regions,
       fabric: FABRIC_PROFILES.denim,
       stitchDensityMm: 0.4,
+      // Phase 2 features を OFF: この test は Phase 1 の kind 構成 (run/satin/fill 単独)
+      // を assert するため、underlay/lockstitch で kind=run が増えると整合性が崩れる。
+      disableUnderlay: true,
+      disableCompensation: true,
+      disableLockstitch: true,
     });
 
     // 期待: 3 オブジェクト (fill / satin / run)

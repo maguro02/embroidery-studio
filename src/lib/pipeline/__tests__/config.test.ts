@@ -130,3 +130,22 @@ describe("UI 統合シナリオ (純関数で再現)", () => {
     expect(cfg.stitchDensity).toBeCloseTo(0.5);
   });
 });
+
+describe("ConversionConfig Phase 2 disable flags", () => {
+  it("makeDefaultConfig は disableUnderlay=false / disableCompensation=false を返す", () => {
+    const c = makeDefaultConfig("denim");
+    expect(c.disableUnderlay).toBe(false);
+    expect(c.disableCompensation).toBe(false);
+  });
+
+  it("applyFabricDefaults は disable フラグを保持する", () => {
+    const cfg: ReturnType<typeof makeDefaultConfig> = {
+      ...makeDefaultConfig("denim"),
+      disableUnderlay: true,
+      disableCompensation: true,
+    };
+    const next = applyFabricDefaults(cfg, "terry");
+    expect(next.disableUnderlay).toBe(true);
+    expect(next.disableCompensation).toBe(true);
+  });
+});

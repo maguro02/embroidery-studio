@@ -128,6 +128,8 @@ export async function runStitchAndWrite(
     fillAngleDeg: config.fillAngleDeg,
     fillAngleByColorIndex: config.fillAngleByColor,
     fillStrategy: config.fillStrategy,
+    disableUnderlay: config.disableUnderlay,
+    disableCompensation: config.disableCompensation,
   });
 
   onProgress?.({ stage: "write", percent: 90 });

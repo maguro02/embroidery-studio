@@ -37,6 +37,10 @@ export type ConversionConfig = {
   fillStrategy: FillStrategy;
   /** ユーザーが明示的に上書きした fabric-driven フィールドの集合。 */
   overrides: Partial<Record<FabricOverrideKey, true>>;
+  /** Phase 2 §3 Underlay 生成をスキップ (デバッグ / Phase 1 互換用)。 */
+  disableUnderlay: boolean;
+  /** Phase 2 §4 Pull Compensation をスキップ (デバッグ / Phase 1 互換用)。 */
+  disableCompensation: boolean;
 };
 
 /** fabric を指定して初期 ConversionConfig を作る。 */
@@ -54,6 +58,8 @@ export function makeDefaultConfig(fabric: FabricKind): ConversionConfig {
     fillAngleByColor: {},
     fillStrategy: "global-angle",
     overrides: {},
+    disableUnderlay: false,
+    disableCompensation: false,
   };
 }
 

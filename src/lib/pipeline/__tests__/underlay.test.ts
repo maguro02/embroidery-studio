@@ -4,9 +4,10 @@ import {
   centerRunUnderlay,
   edgeRunUnderlay,
   fillUnderlay,
+  generateUnderlayStitches,
   zigzagUnderlay,
 } from "../underlay";
-import type { Shape } from "../types";
+import type { EmbroideryObject, Shape } from "../types";
 
 describe("edgeRunUnderlay (rectangle, no hole)", () => {
   const square10: Shape = {
@@ -430,5 +431,99 @@ describe("zigzagUnderlay", () => {
       holes: [],
     };
     expect(zigzagUnderlay(shape, 2, 2.0)).toEqual([]);
+  });
+});
+
+describe("generateUnderlayStitches dispatch", () => {
+  function fillObj(
+    underlay?: EmbroideryObject["props"]["underlay"],
+  ): EmbroideryObject {
+    return {
+      id: "o",
+      kind: "fill",
+      colorIndex: 7,
+      rgb: [0, 0, 0],
+      shape: {
+        outer: [
+          [0, 0],
+          [10, 0],
+          [10, 10],
+          [0, 10],
+        ],
+        holes: [],
+      },
+      order: 0,
+      props: {
+        densityMm: 0.4,
+        maxStitchMm: 7,
+        ...(underlay !== undefined ? { underlay } : {}),
+      },
+    };
+  }
+
+  it('kind="none" なら空配列', () => {
+    expect(generateUnderlayStitches(fillObj({ kind: "none" }))).toEqual([]);
+  });
+
+  it("underlay 未定義でも空配列", () => {
+    expect(generateUnderlayStitches(fillObj(undefined))).toEqual([]);
+  });
+
+  it('kind="edge-run" は kind=run の連続で inset 0.4mm の枠内座標', () => {
+    const r = generateUnderlayStitches(
+      fillObj({ kind: "edge-run", insetMm: 0.4, stitchLenMm: 2 }),
+    );
+    expect(r.length).toBeGreaterThan(0);
+    expect(r.every((s) => s.kind === "run")).toBe(true);
+    expect(r.every((s) => s.colorIndex === 7)).toBe(true);
+    for (const s of r) {
+      expect(s.x).toBeGreaterThanOrEqual(0.4 - 1e-3);
+      expect(s.x).toBeLessThanOrEqual(9.6 + 1e-3);
+    }
+  });
+
+  it('kind="center-run" は細長 satin で polyline 化', () => {
+    const obj: EmbroideryObject = {
+      ...fillObj({ kind: "center-run", stitchLenMm: 2 }),
+      kind: "satin",
+      shape: {
+        outer: [
+          [0, 0],
+          [20, 0],
+          [20, 2],
+          [0, 2],
+        ],
+        holes: [],
+      },
+    };
+    const r = generateUnderlayStitches(obj);
+    expect(r.length).toBeGreaterThan(0);
+    expect(r.every((s) => s.kind === "run")).toBe(true);
+  });
+
+  it('kind="zigzag" は両 rail 間 polyline', () => {
+    const obj: EmbroideryObject = {
+      ...fillObj({ kind: "zigzag", spacingMm: 2, insetMm: 0.5 }),
+      kind: "satin",
+      shape: {
+        outer: [
+          [0, 0],
+          [30, 0],
+          [30, 5],
+          [0, 5],
+        ],
+        holes: [],
+      },
+    };
+    const r = generateUnderlayStitches(obj);
+    expect(r.length).toBeGreaterThan(10);
+  });
+
+  it('kind="fill" は segments を flatten', () => {
+    const r = generateUnderlayStitches(
+      fillObj({ kind: "fill", angleDeg: 0, spacingMm: 3 }),
+    );
+    expect(r.length).toBeGreaterThan(0);
+    expect(r.every((s) => s.kind === "run")).toBe(true);
   });
 });

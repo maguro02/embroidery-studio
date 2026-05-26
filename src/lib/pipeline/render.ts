@@ -11,7 +11,10 @@ import type {
 import type { ColorRegion } from "./vectorize";
 import { analyzeShape, computeAspectRatio } from "./geometry";
 import { buildObjects } from "./build-objects";
+import { applyPullCompensation } from "./compensation";
+import { emitTieIn, emitTieOff } from "./lockstitch";
 import { intersectScanline } from "./scanline";
+import { generateUnderlayStitches } from "./underlay";
 
 const SATIN_MIN_ASPECT_RATIO = 4;
 const DEFAULT_MAX_STITCH_MM = 7;
@@ -56,6 +59,12 @@ export type StitchInput = {
    * デフォルト 1.5。これより低い shape は `fillAngleDeg` にフォールバック。
    */
   shapeStrategyMinAspect?: number;
+  /** Phase 2 §3 Underlay 生成をスキップ (デバッグ / Phase 1 互換用)。 */
+  disableUnderlay?: boolean;
+  /** Phase 2 §4 Pull Compensation をスキップ (デバッグ / Phase 1 互換用)。 */
+  disableCompensation?: boolean;
+  /** Phase 2 §6 Lockstitch (tie-in/off) をスキップ (デバッグ / Phase 1 互換用、UI 非露出)。 */
+  disableLockstitch?: boolean;
 };
 
 export type FillStrategy =
@@ -84,6 +93,14 @@ export type RenderOptions = {
   fillAngleByColorIndex?: Record<number, number>;
   fillStrategy?: FillStrategy;
   shapeStrategyMinAspect?: number;
+  /** Phase 2 §4 Pull Compensation を適用する fabric profile。未指定なら無効。 */
+  fabric?: FabricProfile;
+  /** Phase 2 §3 Underlay 生成をスキップ (デバッグ / Phase 1 互換用)。 */
+  disableUnderlay?: boolean;
+  /** Phase 2 §4 Pull Compensation をスキップ (デバッグ / Phase 1 互換用)。 */
+  disableCompensation?: boolean;
+  /** Phase 2 §6 Lockstitch (tie-in/off) をスキップ (デバッグ / Phase 1 互換用、UI 非露出)。 */
+  disableLockstitch?: boolean;
 };
 
 /** 1 オブジェクトを描画するための文脈。 */
@@ -96,9 +113,45 @@ type Polygon = Point[];
 
 /**
  * 1 つの kind="run" オブジェクトを描画して Stitch 配列を返す。
- * 戻り値の先頭は (prev=undefined のため) jump/trim を含まない。
+ * `RenderOptions.disable*` フラグに応じて compensation / underlay / lockstitch を合成する。
+ * Phase 2 §4.5 順序: underlay は元 shape、top は補正後 shape に対して計算する。
  */
 export function renderRun(
+  obj: EmbroideryObject,
+  ctx: RenderContext,
+): Stitch[] {
+  const objForTop = applyCompForRender(obj, ctx);
+  const top = renderRunTopOnly(objForTop, ctx);
+  return assembleWithUnderlayAndLockstitch(obj, top, ctx);
+}
+
+/**
+ * 1 つの kind="satin" オブジェクトを描画して Stitch 配列を返す。
+ * `RenderOptions.disable*` フラグに応じて compensation / underlay / lockstitch を合成する。
+ */
+export function renderSatin(
+  obj: EmbroideryObject,
+  ctx: RenderContext,
+): Stitch[] {
+  const objForTop = applyCompForRender(obj, ctx);
+  const top = renderSatinTopOnly(objForTop, ctx);
+  return assembleWithUnderlayAndLockstitch(obj, top, ctx);
+}
+
+/**
+ * 1 つの kind="fill" オブジェクトを描画して Stitch 配列を返す。
+ * `RenderOptions.disable*` フラグに応じて compensation / underlay / lockstitch を合成する。
+ */
+export function renderFill(
+  obj: EmbroideryObject,
+  ctx: RenderContext,
+): Stitch[] {
+  const objForTop = applyCompForRender(obj, ctx);
+  const top = renderFillTopOnly(objForTop, ctx);
+  return assembleWithUnderlayAndLockstitch(obj, top, ctx);
+}
+
+function renderRunTopOnly(
   obj: EmbroideryObject,
   ctx: RenderContext,
 ): Stitch[] {
@@ -124,11 +177,7 @@ export function renderRun(
   return block.stitches;
 }
 
-/**
- * 1 つの kind="satin" オブジェクトを描画して Stitch 配列を返す。
- * 戻り値の先頭は jump/trim を含まない。
- */
-export function renderSatin(
+function renderSatinTopOnly(
   obj: EmbroideryObject,
   ctx: RenderContext,
 ): Stitch[] {
@@ -153,11 +202,7 @@ export function renderSatin(
   return block.stitches;
 }
 
-/**
- * 1 つの kind="fill" オブジェクトを描画して Stitch 配列を返す。
- * scanline 行間/穴跨ぎの jump は内部で挿入されるが、戻り値の先頭は jump/trim を含まない。
- */
-export function renderFill(
+function renderFillTopOnly(
   obj: EmbroideryObject,
   ctx: RenderContext,
 ): Stitch[] {
@@ -199,6 +244,57 @@ export function renderFill(
     );
   }
   return block.stitches;
+}
+
+/**
+ * top-only renderer の戻り値に underlay と tie-in/off を合成する。
+ *
+ * `RenderOptions.disableUnderlay` / `disableLockstitch` が true なら該当部分をスキップ。
+ * - underlay 計算は **元 shape** (補正前) で行う (§4.5)
+ * - tie-in/off は color 内 travel run で繋がっている場合は将来抑制可能 (Phase 3 fork point)
+ *
+ * 戻り値順序: `[tie-in, ...underlay, ...top, tie-off]` (各 disableXxx で個別除外)。
+ */
+function assembleWithUnderlayAndLockstitch(
+  obj: EmbroideryObject,
+  top: Stitch[],
+  ctx: RenderContext,
+): Stitch[] {
+  if (top.length === 0) return [];
+  const underlay = ctx.opts.disableUnderlay
+    ? []
+    : generateUnderlayStitches(obj);
+  if (ctx.opts.disableLockstitch) {
+    return [...underlay, ...top];
+  }
+  // NOTE (fork for Phase 3 travel-run): color 内で前 object と travel run で連結
+  // されている場合、tie-in/off を入れない設計に将来差し替える。
+  const first = top[0];
+  const second = top[1] ?? first;
+  const last = top[top.length - 1];
+  const prev = top[top.length - 2] ?? last;
+  const norm = (dx: number, dy: number): [number, number] => {
+    const len = Math.hypot(dx, dy) || 1;
+    return [dx / len, dy / len];
+  };
+  const firstDir = norm(second.x - first.x, second.y - first.y);
+  const lastDir = norm(last.x - prev.x, last.y - prev.y);
+  const tieIn = emitTieIn([first.x, first.y], firstDir, obj.colorIndex);
+  const tieOff = emitTieOff([last.x, last.y], lastDir, obj.colorIndex);
+  return [...tieIn, ...underlay, ...top, ...tieOff];
+}
+
+/**
+ * `RenderOptions.disableCompensation` と `fabric` の有無に応じて Pull Compensation を
+ * 適用した EmbroideryObject を返す (top 計算用)。compensation 無効時は入力 obj をそのまま返す。
+ */
+function applyCompForRender(
+  obj: EmbroideryObject,
+  ctx: RenderContext,
+): EmbroideryObject {
+  if (ctx.opts.disableCompensation) return obj;
+  if (!ctx.opts.fabric) return obj;
+  return applyPullCompensation(obj, ctx.opts.fabric);
 }
 
 /**
@@ -295,6 +391,9 @@ export function generateStitches(input: StitchInput): StitchPattern {
     fillAngleByColorIndex,
     fillStrategy = "global-angle",
     shapeStrategyMinAspect = DEFAULT_SHAPE_STRATEGY_MIN_ASPECT,
+    disableUnderlay,
+    disableCompensation,
+    disableLockstitch,
   } = input;
 
   const objects = buildObjects({
@@ -325,6 +424,10 @@ export function generateStitches(input: StitchInput): StitchPattern {
     fillAngleByColorIndex,
     fillStrategy,
     shapeStrategyMinAspect,
+    fabric,
+    disableUnderlay,
+    disableCompensation,
+    disableLockstitch,
   };
   return renderDesign(design, opts);
 }

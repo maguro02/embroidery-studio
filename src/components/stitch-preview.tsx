@@ -120,7 +120,7 @@ export function StitchPreview({
   );
 }
 
-function StitchCanvas({ pattern }: { pattern: StitchPattern }) {
+export function StitchCanvas({ pattern }: { pattern: StitchPattern }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const scale = useMemo(
     () => Math.min(480 / pattern.widthMm, 480 / pattern.heightMm),

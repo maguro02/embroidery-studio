@@ -15,6 +15,7 @@ import { applyPullCompensation } from "./compensation";
 import { emitTieIn, emitTieOff } from "./lockstitch";
 import { intersectScanline } from "./scanline";
 import { tatamiBrick } from "./fill";
+import { medialAxisRun } from "./run";
 import { brickSplit, extractRails, renderSatin2Rail } from "./satin";
 import { generateUnderlayStitches } from "./underlay";
 import type { TrimPolicy } from "./policy";
@@ -110,6 +111,9 @@ export type RenderOptions = {
   /** Phase 4 §3-4 2-rail satin + brick auto-split を無効化 (デバッグ / Phase 1-3 互換用)。
    *  true のとき renderSatinTopOnly は旧 satinStitches (PCA 単一長軸) 経路に戻る。 */
   disableAutoSplit?: boolean;
+  /** Phase 4 §6 medial-axis run (Zhang-Suen) を無効化 (デバッグ / Phase 1-3 互換用)。
+   *  true のとき renderRunTopOnly は shape.outer をそのまま resample する。 */
+  disableMedialAxis?: boolean;
   /** Phase 3 §7 distance-based routing (travel-run/jump/trim+jump)。未指定なら Phase 1/2 互換 (常に trim+jump)。 */
   policy?: TrimPolicy;
   /** renderDesign 内で per-object に注入される (renderer 側でのみ参照)。tie-in を抑制する travel-run 連結時用。 */
@@ -175,10 +179,17 @@ function renderRunTopOnly(
     rgb: obj.rgb,
     stitches: [],
   };
-  const pts = resamplePolyline(
-    obj.shape.outer as Polygon,
-    ctx.opts.stitchDensityMm,
-  );
+  // Phase 4 PR19: medial-axis を優先。退化 shape (面積過小 / 細すぎる) で
+  // 空配列が返ったときは外形 resample にフォールバック (Phase 1-3 互換)。
+  let pts: Point[] = ctx.opts.disableMedialAxis
+    ? []
+    : medialAxisRun(obj.shape, ctx.opts.stitchDensityMm);
+  if (pts.length === 0) {
+    pts = resamplePolyline(
+      obj.shape.outer as Polygon,
+      ctx.opts.stitchDensityMm,
+    );
+  }
   if (pts.length === 0) return block.stitches;
   appendStitchesWithJumps(
     block,

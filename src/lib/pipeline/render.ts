@@ -14,6 +14,7 @@ import { buildObjects } from "./build-objects";
 import { applyPullCompensation } from "./compensation";
 import { emitTieIn, emitTieOff } from "./lockstitch";
 import { intersectScanline } from "./scanline";
+import { tatamiBrick } from "./fill";
 import { generateUnderlayStitches } from "./underlay";
 import type { TrimPolicy } from "./policy";
 
@@ -233,12 +234,13 @@ function renderFillTopOnly(
     aspectRatio,
     ctx.opts.shapeStrategyMinAspect ?? DEFAULT_SHAPE_STRATEGY_MIN_ASPECT,
   );
-  const segments = fillStitches(
+  const maxStitchMm = ctx.opts.maxStitchMm ?? DEFAULT_MAX_STITCH_MM;
+  const segments = tatamiBrick(
     obj.shape,
     ctx.opts.stitchDensityMm,
     shapeAngleDeg,
+    maxStitchMm,
   );
-  const maxStitchMm = ctx.opts.maxStitchMm ?? DEFAULT_MAX_STITCH_MM;
   const trimThresholdMm =
     ctx.opts.trimThresholdMm ?? DEFAULT_TRIM_THRESHOLD_MM;
   for (const seg of segments) {
@@ -827,6 +829,7 @@ export const __internal = {
   analyzeShape,
   computeAspectRatio,
   fillStitches,
+  tatamiBrick,
   satinStitches,
   intersectScanline,
   appendStitchesWithJumps,

@@ -1,5 +1,16 @@
 # Phase 2. Quality - Underlay / Pull-Push Compensation / Lockstitch
 
+> **Status: ✅ Complete** (2026-05-26 merged PR #8 / #9 / #10 / #11 / #12)
+> - PR8 (#8): Pull Compensation Satin パス、自前 normal offset (clipper 不要)
+> - PR9 (#9): Pull Comp Fill + Push Comp + clipper-lib@^6.4.2 導入、polygon-offset.ts 新規
+> - PR10 (#10): edge-run / center-run underlay (Zhang-Suen thinning + BFS 直径)
+> - PR11 (#11): zigzag / fill underlay + scanline.ts 抽出 (循環依存予防)
+> - PR12 (#12): lockstitch + render 統合 + ConversionConfig debug flags + Phase 2 受け入れテスト
+>
+> 全 PR 共通: 322 テスト pass / npx tsc --noEmit pass / npm run build pass / lint warning 0 増。
+> Phase 2 機能はデフォルト ON。`disableUnderlay` / `disableCompensation` で UI から無効化可能。
+> Forking points for Phase 3: travel-run 連結時の tie-in/off 抑制 (assembleWithUnderlayAndLockstitch)、同色 push comp 統合。
+
 実機での仕上がり品質を決定する **3 大要素**を導入する。
 
 ## 1. 目的

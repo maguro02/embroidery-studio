@@ -52,10 +52,12 @@ function resolvePullAmount(
 }
 
 function offsetSatinByNormal(shape: Shape, amountMm: number): Shape {
+  const cloneHoles = (): Polygon[] =>
+    shape.holes.map((h) => h.map(([x, y]) => [x, y] as Point2D));
   if (amountMm === 0) {
     return {
       outer: shape.outer.map(([x, y]) => [x, y] as Point2D),
-      holes: shape.holes.map((h) => h.map(([x, y]) => [x, y] as Point2D)),
+      holes: cloneHoles(),
     };
   }
   const { longAxis, center } = analyzeShape(shape.outer);
@@ -70,7 +72,7 @@ function offsetSatinByNormal(shape: Shape, amountMm: number): Shape {
       y + shortAxis[1] * amountMm * sign,
     ] as Point2D;
   });
-  return { outer, holes: shape.holes };
+  return { outer, holes: cloneHoles() };
 }
 
 /** テスト専用に内部ヘルパを公開する (本番コードから参照しないこと)。 */

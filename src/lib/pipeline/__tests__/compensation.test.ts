@@ -202,6 +202,31 @@ describe("applyPullCompensation", () => {
     expect(JSON.stringify(shape)).toBe(snapshot);
   });
 
+  it("Satin 補正後の shape.holes は入力 holes と参照を共有しない", () => {
+    const holes: [number, number][][] = [
+      [
+        [10, 2],
+        [12, 2],
+        [12, 4],
+        [10, 4],
+      ],
+    ];
+    const shape: Shape = {
+      outer: [
+        [0, 0],
+        [30, 0],
+        [30, 7],
+        [0, 7],
+      ],
+      holes,
+    };
+    const obj = makeObj("satin", shape, { pullCompMm: 0.2 });
+    const r = applyPullCompensation(obj, denim);
+    expect(r.shape.holes).not.toBe(shape.holes);
+    expect(r.shape.holes[0]).not.toBe(shape.holes[0]);
+    expect(r.shape.holes).toEqual(shape.holes);
+  });
+
   it("id / colorIndex / rgb / props / order / locked が維持される", () => {
     const shape: Shape = {
       outer: [

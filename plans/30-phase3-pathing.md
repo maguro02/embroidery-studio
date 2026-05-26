@@ -1,5 +1,15 @@
 # Phase 3. Pathing - Branching / 訪問順最適化 / Color Sort 強化
 
+> **Status: ✅ Complete** (2026-05-26 merged PR #13 / #14 / #15)
+> - PR13 (#13): pathing.ts 新規 — shapesTouch (bbox+線分距離) / findBranches (Union-Find) / chooseEntryExit (kind 別 NN)
+> - PR14 (#14): optimizeOrder — 色グループ化 + branch group 間/内 nearest-neighbor + locked 保持
+> - PR15 (#15): policy.ts (TRIM_POLICY_BY_FORMAT) + connectObjects + Phase 3 経路 renderColorBlockWithPolicy + compose.ts 経路組替
+>
+> 全 PR 共通: 370 テスト pass / tsc clean / build OK / lint warning 0 増。
+> `RenderOptions.policy` を渡すと travel-run/jump/trim+jump の距離別ルーティング + tie-in/off 抑制が有効。
+> 未指定なら Phase 1/2 互換 (既存テスト破壊なし)。
+> 同色 push compensation 統合は Phase 4 forking point として保留。
+
 ステッチ品質の **生産性 (時間とミス)** を決める要素を導入する。
 
 ## 1. 目的

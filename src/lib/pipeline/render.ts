@@ -11,6 +11,7 @@ import type {
 import type { ColorRegion } from "./vectorize";
 import { analyzeShape, computeAspectRatio } from "./geometry";
 import { buildObjects } from "./build-objects";
+import { intersectScanline } from "./scanline";
 
 const SATIN_MIN_ASPECT_RATIO = 4;
 const DEFAULT_MAX_STITCH_MM = 7;
@@ -579,38 +580,8 @@ function fillStitches(
   return segments;
 }
 
-/**
- * 複数リング (outer + holes) と、点 (ox,oy) を通り方向 dir の直線との交点を、
- * その直線上の符号付き距離として返す。
- * even-odd 塗りでは、外形と穴の交点を全部集めてソート→ペア化で穴抜き塗りになる。
- */
-function intersectScanline(
-  rings: Polygon[],
-  ox: number,
-  oy: number,
-  dir: Point,
-): number[] {
-  const out: number[] = [];
-  const nx = -dir[1];
-  const ny = dir[0];
-  for (const ring of rings) {
-    const n = ring.length;
-    for (let i = 0; i < n; i++) {
-      const [x1, y1] = ring[i];
-      const [x2, y2] = ring[(i + 1) % n];
-      const s1 = (x1 - ox) * nx + (y1 - oy) * ny;
-      const s2 = (x2 - ox) * nx + (y2 - oy) * ny;
-      if ((s1 > 0 && s2 > 0) || (s1 < 0 && s2 < 0)) continue;
-      if (s1 === s2) continue;
-      const t = s1 / (s1 - s2);
-      const ix = x1 + (x2 - x1) * t;
-      const iy = y1 + (y2 - y1) * t;
-      const d = (ix - ox) * dir[0] + (iy - oy) * dir[1];
-      out.push(d);
-    }
-  }
-  return out;
-}
+// intersectScanline は ./scanline.ts に切り出して両方から import するよう変更
+// (PR12 で render → underlay の依存が入っても循環を避けるための配置)。
 
 /** Stitch を作るユーティリティ (テスト用) */
 export function makeStitch(

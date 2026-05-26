@@ -10,7 +10,7 @@
 import type { Point2D, Polygon, Shape } from "./types";
 import { analyzeShape } from "./geometry";
 import { offsetPolygon } from "./polygon-offset";
-import { __internal as renderInternal } from "./render";
+import { intersectScanline } from "./scanline";
 import { pointInPolygon } from "./vectorize";
 
 const PX_PER_MM = 10; // center-run の rasterize 解像度 (1px = 0.1mm)
@@ -117,7 +117,7 @@ export function fillUnderlay(
   for (let s = minS; s <= maxS + 1e-9; s += spacingMm) {
     const ox = perp[0] * s;
     const oy = perp[1] * s;
-    const crossings = renderInternal.intersectScanline(rings, ox, oy, dir);
+    const crossings = intersectScanline(rings, ox, oy, dir);
     if (crossings.length < 2) continue;
     crossings.sort((a, b) => a - b);
     if (crossings.length % 2 !== 0) crossings.pop();

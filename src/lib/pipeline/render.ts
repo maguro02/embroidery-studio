@@ -15,6 +15,10 @@ import { applyPullCompensation } from "./compensation";
 import { emitTieIn, emitTieOff } from "./lockstitch";
 import { intersectScanline } from "./scanline";
 import { generateUnderlayStitches } from "./underlay";
+import type { TrimPolicy } from "./policy";
+
+export type { TrimPolicy } from "./policy";
+
 
 const SATIN_MIN_ASPECT_RATIO = 4;
 const DEFAULT_MAX_STITCH_MM = 7;
@@ -101,6 +105,12 @@ export type RenderOptions = {
   disableCompensation?: boolean;
   /** Phase 2 §6 Lockstitch (tie-in/off) をスキップ (デバッグ / Phase 1 互換用、UI 非露出)。 */
   disableLockstitch?: boolean;
+  /** Phase 3 §7 distance-based routing (travel-run/jump/trim+jump)。未指定なら Phase 1/2 互換 (常に trim+jump)。 */
+  policy?: TrimPolicy;
+  /** renderDesign 内で per-object に注入される (renderer 側でのみ参照)。tie-in を抑制する travel-run 連結時用。 */
+  suppressTieIn?: boolean;
+  /** renderDesign 内で per-object に注入される。tie-off を抑制する travel-run 連結時用。 */
+  suppressTieOff?: boolean;
 };
 
 /** 1 オブジェクトを描画するための文脈。 */
@@ -267,8 +277,9 @@ function assembleWithUnderlayAndLockstitch(
   if (ctx.opts.disableLockstitch) {
     return [...underlay, ...top];
   }
-  // NOTE (fork for Phase 3 travel-run): color 内で前 object と travel run で連結
-  // されている場合、tie-in/off を入れない設計に将来差し替える。
+  // Phase 3 §5 travel-run 連結時の抑制: color 内で前 object と travel run で連結している
+  // 場合は tie-in を、次が travel run で連結する場合は tie-off を、それぞれスキップする。
+  // renderDesign が opts.suppressTieIn / suppressTieOff を per-object に注入する。
   const first = top[0];
   const second = top[1] ?? first;
   const last = top[top.length - 1];
@@ -279,8 +290,12 @@ function assembleWithUnderlayAndLockstitch(
   };
   const firstDir = norm(second.x - first.x, second.y - first.y);
   const lastDir = norm(last.x - prev.x, last.y - prev.y);
-  const tieIn = emitTieIn([first.x, first.y], firstDir, obj.colorIndex);
-  const tieOff = emitTieOff([last.x, last.y], lastDir, obj.colorIndex);
+  const tieIn = ctx.opts.suppressTieIn
+    ? []
+    : emitTieIn([first.x, first.y], firstDir, obj.colorIndex);
+  const tieOff = ctx.opts.suppressTieOff
+    ? []
+    : emitTieOff([last.x, last.y], lastDir, obj.colorIndex);
   return [...tieIn, ...underlay, ...top, ...tieOff];
 }
 
@@ -295,6 +310,41 @@ function applyCompForRender(
   if (ctx.opts.disableCompensation) return obj;
   if (!ctx.opts.fabric) return obj;
   return applyPullCompensation(obj, ctx.opts.fabric);
+}
+
+/**
+ * Phase 3 §5 オブジェクト間繋ぎ。`prevExit` → `nextEntry` を距離に応じて以下のいずれかで繋ぐ:
+ *
+ *   - 距離 < `policy.travelRunUntilMm`           → 1 stitch (kind="run"、座標=nextEntry)
+ *   - `travelRunUntilMm` <= 距離 < `trimThresholdMm` → 1 stitch (kind="jump"、座標=nextEntry)
+ *   - 距離 >= `trimThresholdMm`                  → 2 stitch (kind="trim" @prevExit, kind="jump" @nextEntry)
+ *
+ * 戻り値の colorIndex は **次 object** のものを使う (糸切り替え後の糸として扱う)。
+ */
+export function connectObjects(
+  prevExit: Point,
+  nextEntry: Point,
+  nextColorIndex: number,
+  policy: TrimPolicy,
+): Stitch[] {
+  const dist = Math.hypot(
+    nextEntry[0] - prevExit[0],
+    nextEntry[1] - prevExit[1],
+  );
+  if (dist < policy.travelRunUntilMm) {
+    return [
+      { x: nextEntry[0], y: nextEntry[1], kind: "run", colorIndex: nextColorIndex },
+    ];
+  }
+  if (dist < policy.trimThresholdMm) {
+    return [
+      { x: nextEntry[0], y: nextEntry[1], kind: "jump", colorIndex: nextColorIndex },
+    ];
+  }
+  return [
+    { x: prevExit[0], y: prevExit[1], kind: "trim", colorIndex: nextColorIndex },
+    { x: nextEntry[0], y: nextEntry[1], kind: "jump", colorIndex: nextColorIndex },
+  ];
 }
 
 /**
@@ -331,14 +381,14 @@ export function renderDesign(
       rgb: objs[0].rgb,
       stitches: [],
     };
-    for (const obj of objs) {
-      const stitches =
-        obj.kind === "run"
-          ? renderRun(obj, ctx)
-          : obj.kind === "satin"
-            ? renderSatin(obj, ctx)
-            : renderFill(obj, ctx);
-      appendObjectStitches(block, stitches, c, trimThresholdMm);
+    if (opts.policy) {
+      renderColorBlockWithPolicy(block, objs, ctx, opts.policy);
+    } else {
+      // Phase 1/2 互換経路: 各 object を独立に renderXxx → trim+jump 挿入
+      for (const obj of objs) {
+        const stitches = renderObjectByKind(obj, ctx);
+        appendObjectStitches(block, stitches, c, trimThresholdMm);
+      }
     }
     if (block.stitches.length > 0) {
       blocks.push(block);
@@ -364,6 +414,82 @@ export function renderDesign(
     blocks,
     totalStitches,
   };
+}
+
+function renderObjectByKind(
+  obj: EmbroideryObject,
+  ctx: RenderContext,
+): Stitch[] {
+  if (obj.kind === "run") return renderRun(obj, ctx);
+  if (obj.kind === "satin") return renderSatin(obj, ctx);
+  return renderFill(obj, ctx);
+}
+
+/**
+ * Phase 3 §5 policy 経路: 同色 block 内で連続 object 間を `connectObjects` で繋ぎ、
+ * travel-run 連結時は前 object の tie-off と次 object の tie-in を抑制する。
+ *
+ * 抑制方式: 各 object の renderer に opts.suppressTieIn/suppressTieOff を per-object に
+ * 注入する 2-pass 構造 (pass 1: 連結モード計算、pass 2: 抑制フラグ付きで render)。
+ */
+function renderColorBlockWithPolicy(
+  block: StitchBlock,
+  objs: EmbroideryObject[],
+  ctx: RenderContext,
+  policy: TrimPolicy,
+): void {
+  if (objs.length === 0) return;
+
+  // Pass 1 (dry run): tie-in/off 抑制なしで一旦 render し、各 object の実際の
+  //   first/last stitch 座標を取得する。outer 頂点近似は精度不足のため、
+  //   実 renderer の出力位置で隣接 pair 距離を判定する必要がある。
+  const dryRuns = objs.map((obj) =>
+    renderObjectByKind(obj, {
+      opts: { ...ctx.opts, suppressTieIn: false, suppressTieOff: false },
+    }),
+  );
+
+  // Pass 2: 隣接 pair の距離をもとに travel-run / jump / trim+jump を決定。
+  const isTravelRunToNext: boolean[] = new Array(objs.length).fill(false);
+  for (let i = 0; i < objs.length - 1; i++) {
+    const prevStitches = dryRuns[i];
+    const nextStitches = dryRuns[i + 1];
+    if (prevStitches.length === 0 || nextStitches.length === 0) continue;
+    const prev = prevStitches[prevStitches.length - 1];
+    const next = nextStitches[0];
+    const dist = Math.hypot(next.x - prev.x, next.y - prev.y);
+    isTravelRunToNext[i] = dist < policy.travelRunUntilMm;
+  }
+
+  // Pass 3: 抑制フラグが必要な object だけ再 render、他は dry-run 結果を再利用。
+  //   suppressTieIn/Off の有無で stitch 列が変わるため、フラグが立つ object は
+  //   個別に renderObjectByKind を再呼びする (コスト ~2× だが PR15 では許容)。
+  for (let i = 0; i < objs.length; i++) {
+    const obj = objs[i];
+    const suppressTieIn = i > 0 && isTravelRunToNext[i - 1];
+    const suppressTieOff = i < objs.length - 1 && isTravelRunToNext[i];
+    let stitches: Stitch[];
+    if (suppressTieIn || suppressTieOff) {
+      stitches = renderObjectByKind(obj, {
+        opts: { ...ctx.opts, suppressTieIn, suppressTieOff },
+      });
+    } else {
+      stitches = dryRuns[i];
+    }
+    if (stitches.length === 0) continue;
+    if (block.stitches.length > 0) {
+      const prev = block.stitches[block.stitches.length - 1];
+      const first = stitches[0];
+      const connect = connectObjects(
+        [prev.x, prev.y],
+        [first.x, first.y],
+        obj.colorIndex,
+        policy,
+      );
+      for (const s of connect) block.stitches.push(s);
+    }
+    for (const s of stitches) block.stitches.push(s);
+  }
 }
 
 /**

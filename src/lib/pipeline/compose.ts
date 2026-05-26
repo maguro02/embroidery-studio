@@ -1,5 +1,10 @@
 import type { StitchPattern } from "./types";
 import type { ConversionConfig } from "./config";
+import { optimizeOrder } from "./pathing";
+import { TRIM_POLICY_BY_FORMAT } from "./policy";
+import { buildObjects } from "./build-objects";
+import { renderDesign } from "./render";
+import type { EmbroideryDesign } from "./types";
 import { getFabricProfile } from "./fabric";
 import { warmupPyodide } from "./pyodide-loader";
 import { quantize, warmupOpenCV } from "./quantize";
@@ -116,20 +121,37 @@ export async function runStitchAndWrite(
   onProgress?: (p: PipelineProgress) => void,
 ): Promise<PipelineResult> {
   onProgress?.({ stage: "stitch", percent: 75 });
-  const pattern = generateStitches({
+  // Phase 3 §4 pathing 統合: buildObjects → optimizeOrder → renderDesign (policy 経路)。
+  // Phase 1/2 互換のため generateStitches 互換 API は維持するが、本番 pipeline からは
+  // 上記の明示経路を使い、format に応じた TRIM_POLICY と訪問順最適化を反映する。
+  const fabric = getFabricProfile(config.fabric);
+  const objects = buildObjects({
     regions: pre.regions,
-    fabric: getFabricProfile(config.fabric),
+    widthMm: pre.widthMm,
+    widthPx: pre.widthPx,
+    fabric,
+    satinMaxWidthMm: config.satinMaxWidthMm,
+  });
+  const baseDesign: EmbroideryDesign = {
+    widthMm: pre.widthMm,
+    heightMm: pre.heightMm,
+    fabric,
+    objects,
+  };
+  const optimized = optimizeOrder(baseDesign);
+  const pattern = renderDesign(optimized, {
     widthMm: pre.widthMm,
     heightMm: pre.heightMm,
     widthPx: pre.widthPx,
-    heightPx: pre.heightPx,
     stitchDensityMm: config.stitchDensity,
     satinMaxWidthMm: config.satinMaxWidthMm,
     fillAngleDeg: config.fillAngleDeg,
     fillAngleByColorIndex: config.fillAngleByColor,
     fillStrategy: config.fillStrategy,
+    fabric,
     disableUnderlay: config.disableUnderlay,
     disableCompensation: config.disableCompensation,
+    policy: TRIM_POLICY_BY_FORMAT[config.format],
   });
 
   onProgress?.({ stage: "write", percent: 90 });

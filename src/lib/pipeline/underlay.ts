@@ -20,7 +20,8 @@ const MIN_AREA_MM2 = 0.25; // 極小 shape の早期除外閾値
  *   - `[0]`:    外形を `insetMm` 内側に縮めたリング (1 本)
  *   - `[1..]`:  各 hole を `insetMm` 外側に膨らませたリング (入力順)
  *
- * オフセットで外形 / 任意 hole が消失した場合はそのリングを単純に落とす。
+ * **外形が消失した場合は空配列を返す** (holes だけが残ると順序契約が崩れ、
+ * 下縫いの意味を成さないため)。任意の hole が消失したらその hole のリングだけを落とす。
  * `insetMm <= 0` や `stitchLenMm <= 0` の不正入力には早期 return で空配列を返す。
  */
 export function edgeRunUnderlay(
@@ -29,12 +30,12 @@ export function edgeRunUnderlay(
   stitchLenMm: number,
 ): Point2D[][] {
   if (insetMm <= 0 || stitchLenMm <= 0) return [];
-  const rings: Point2D[][] = [];
   const outerOff = offsetPolygon(shape.outer, -insetMm);
-  if (outerOff && outerOff.length > 0) {
-    const ring = pickLargest(outerOff);
-    if (ring) rings.push(resampleClosedRing(ring, stitchLenMm));
-  }
+  if (!outerOff || outerOff.length === 0) return [];
+  const outerRing = pickLargest(outerOff);
+  if (!outerRing) return [];
+
+  const rings: Point2D[][] = [resampleClosedRing(outerRing, stitchLenMm)];
   for (const hole of shape.holes) {
     const holeOff = offsetPolygon(hole, +insetMm);
     if (!holeOff || holeOff.length === 0) continue;

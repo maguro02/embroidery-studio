@@ -228,6 +228,29 @@ describe("edge cases", () => {
     expect(edgeRunUnderlay(tiny, 0.6, 2.5)).toEqual([]);
   });
 
+  it("edgeRunUnderlay: 外形消失時は holes があっても空配列 (順序契約の保護)", () => {
+    // [0,1]² の outer (1mm 角) を 0.6mm 内側オフセット → 消失。
+    // 一方 hole は 0.4mm 角を +0.6mm 外側オフセットしても残るため、
+    // 順序契約が破られないよう実装側で全体を [] にする必要がある。
+    const withHole: Shape = {
+      outer: [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+      ],
+      holes: [
+        [
+          [0.3, 0.3],
+          [0.7, 0.3],
+          [0.7, 0.7],
+          [0.3, 0.7],
+        ],
+      ],
+    };
+    expect(edgeRunUnderlay(withHole, 0.6, 2.5)).toEqual([]);
+  });
+
   it("centerRunUnderlay: 三角形でも 2 点以上の polyline", () => {
     const tri: Shape = {
       outer: [

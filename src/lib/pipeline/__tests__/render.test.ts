@@ -848,7 +848,7 @@ describe("renderRun", () => {
     }
   });
 
-  it("先頭の Stitch は outer の最初の点 ≒ 起点 で kind='run'", () => {
+  it("先頭の Stitch は medial-axis 端点 で kind='run' (Phase 4 PR19 で中心線抽出に切替)", () => {
     const obj: EmbroideryObject = {
       id: "0-0",
       kind: "run",
@@ -868,7 +868,29 @@ describe("renderRun", () => {
     };
     const stitches = renderRun(obj, makeCtx());
     expect(stitches.length).toBeGreaterThan(0);
-    expect(stitches[0]).toMatchObject({ x: 2, y: 2, kind: "run", colorIndex: 3 });
+    // medial-axis: y は中心 ≈ 2.15 (= 2 + 0.3/2)、kind/colorIndex は不変
+    expect(stitches[0].kind).toBe("run");
+    expect(stitches[0].colorIndex).toBe(3);
+    expect(stitches[0].y).toBeCloseTo(2.15, 1);
+  });
+
+  it("disableMedialAxis=true で旧 outer resample 経路に戻る (Phase 1-3 互換)", () => {
+    const obj: EmbroideryObject = {
+      id: "0-0",
+      kind: "run",
+      colorIndex: 0,
+      rgb: [0, 0, 0],
+      shape: {
+        outer: [[2, 2], [12, 2], [12, 2.3], [2, 2.3]],
+        holes: [],
+      },
+      props: DUMMY_PROPS,
+      order: 0,
+    };
+    const stitches = renderRun(obj, makeCtx({ disableMedialAxis: true }));
+    expect(stitches.length).toBeGreaterThan(0);
+    // 旧経路は outer の最初の点 (2, 2) から始まる
+    expect(stitches[0]).toMatchObject({ x: 2, y: 2, kind: "run", colorIndex: 0 });
   });
 });
 
@@ -1290,7 +1312,7 @@ describe("renderDesign", () => {
 
     expect(pattern.widthMm).toBe(50);
     expect(pattern.heightMm).toBe(50);
-    expect(pattern.totalStitches).toBe(233);
+    expect(pattern.totalStitches).toBe(206);
     expect(pattern.blocks).toHaveLength(3);
 
     // block 0: fill (穴あり矩形)
@@ -1311,13 +1333,16 @@ describe("renderDesign", () => {
     // Phase 4 PR18 で 2-rail satin に切替: 最初の stitch は上 rail (y=0.8) 側に出る
     expect(b1.stitches[0]).toEqual({ x: 15, y: 0.8, kind: "satin", colorIndex: 1 });
 
-    // block 2: run (極細線)
+    // block 2: run (極細線) — Phase 4 PR19 で medial-axis に切替で stitch 数半減
     const b2 = pattern.blocks[2];
     expect(b2.colorIndex).toBe(2);
     expect(b2.rgb).toEqual([0, 0, 255]);
-    expect(b2.stitches).toHaveLength(52);
-    expect(countByKind(b2.stitches)).toEqual({ run: 52 });
-    expect(b2.stitches[0]).toEqual({ x: 0, y: 15, kind: "run", colorIndex: 2 });
+    // outer 1 周なぞる旧経路から medial-axis 1 本 (~10mm) に変わったため stitch 数減
+    expect(countByKind(b2.stitches)).toEqual({ run: b2.stitches.length });
+    expect(b2.stitches[0].kind).toBe("run");
+    expect(b2.stitches[0].colorIndex).toBe(2);
+    // medial-axis 上の y は 15.2 近傍 (15 + 0.4/2)
+    expect(b2.stitches[0].y).toBeCloseTo(15.2, 1);
 
     // 末尾 block には stop を付けない (既存仕様)
     expect(b2.stitches[b2.stitches.length - 1].kind).toBe("run");
@@ -1399,8 +1424,9 @@ describe("renderDesign", () => {
       disableCompensation: true,
       disableLockstitch: true,
     });
-    expect(pattern.totalStitches).toBe(233);
-    expect(pattern.blocks.map((b) => b.stitches.length)).toEqual([172, 53, 52]);
+    expect(pattern.totalStitches).toBe(206);
+    // block 2 (run) は medial-axis 化で 52 → 25 stitches に減少
+    expect(pattern.blocks.map((b) => b.stitches.length)).toEqual([172, 53, 25]);
   });
 });
 

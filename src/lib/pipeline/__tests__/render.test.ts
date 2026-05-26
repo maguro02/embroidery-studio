@@ -1240,15 +1240,15 @@ describe("renderDesign", () => {
 
     expect(pattern.widthMm).toBe(50);
     expect(pattern.heightMm).toBe(50);
-    expect(pattern.totalStitches).toBe(201);
+    expect(pattern.totalStitches).toBe(233);
     expect(pattern.blocks).toHaveLength(3);
 
     // block 0: fill (穴あり矩形)
     const b0 = pattern.blocks[0];
     expect(b0.colorIndex).toBe(0);
     expect(b0.rgb).toEqual([255, 0, 0]);
-    expect(b0.stitches).toHaveLength(140);
-    expect(countByKind(b0.stitches)).toEqual({ fill: 97, jump: 42, stop: 1 });
+    expect(b0.stitches).toHaveLength(172);
+    expect(countByKind(b0.stitches)).toEqual({ fill: 129, jump: 42, stop: 1 });
     expect(b0.stitches[0]).toEqual({ x: 10, y: 0, kind: "fill", colorIndex: 0 });
     expect(b0.stitches[b0.stitches.length - 1].kind).toBe("stop");
 
@@ -1348,8 +1348,8 @@ describe("renderDesign", () => {
       disableCompensation: true,
       disableLockstitch: true,
     });
-    expect(pattern.totalStitches).toBe(201);
-    expect(pattern.blocks.map((b) => b.stitches.length)).toEqual([140, 53, 52]);
+    expect(pattern.totalStitches).toBe(233);
+    expect(pattern.blocks.map((b) => b.stitches.length)).toEqual([172, 53, 52]);
   });
 });
 

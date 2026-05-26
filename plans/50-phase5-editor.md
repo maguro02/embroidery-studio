@@ -1,5 +1,26 @@
 # Phase 5. Editor - パス編集 / 縫い順編集 / オブジェクトプロパティ UI
 
+> **Status: ✅ Complete (基盤 + 純ロジック層)** (2026-05-26 merged PR #20 / #21 / #22 / #23 / #24)
+> - PR20 (#20): design store (Zustand vanilla) + hit-test + PreviewCanvasEditable (クリック選択)
+> - PR21 (#21): ObjectInspector (kind / 角度 / 密度 / pullComp / underlay 編集) + 純ロジック patch ビルダ
+> - PR22 (#22): SewingOrderPanel (@dnd-kit/sortable DnD 並び替え + lock/visible/delete + 自動最適化) + store の removeObject/applyOptimizeOrder
+> - PR23 (#23): ノード編集モード (SVG オーバーレイで頂点 add/move/delete) + node-hit-test 純ロジック
+> - PR24 (#24): JSON serialize/deserialize + Undo/Redo (immer history stack) + VisualizationToggle + UndoRedoButtons
+>
+> 全 PR 共通: テスト 399 → 487 (累計 +88: store 26 / hit-test 5 / inspector 10 / sewing 16 / node 15 / serialize 8 / history 11 / 他) / npx tsc --noEmit pass / npm run build pass / lint warning 0 増。
+>
+> **新規依存** (ユーザー事前承認済み): zustand@^5 (PR20) / @dnd-kit/core@^6 + sortable@^10 + utilities@^3 (PR22) / immer@^10 (PR24)。
+>
+> **Phase 5 完成時の follow-up (本セッション外、要 visual 検証)**:
+> - `embroidery-studio.tsx` の 3 カラムレイアウト再構成 (ObjectInspector / SewingOrderPanel / VisualizationToggle / UndoRedoButtons / PreviewCanvasEditable の正式配置)
+> - `PreviewCanvasEditable` への visualization フラグ (showTravel / showJump / showTrim) 購読配線とキャンバス上の travel/jump/trim 描画 (グレー線 / 破線 / 赤丸)
+> - design 編集の debounce 200ms → `renderStitches` → `writeEmbroidery` の自動再生成パス
+> - `EmbroideryStudio` の旧 useState から `useDesignStore` への完全移行
+>
+> 上記 follow-up は Claude Code 環境ではブラウザ visual 検証不可のため、ユーザー側で manual 統合する想定で基盤はすべて準備済み (各 panel / hook を import するだけで動く)。
+>
+> Phase 5 発展課題 (本 Phase 範囲外): ペンモード (新規 object 描画) / Bezier 編集 / グループ化 / TrueView プレビュー / マルチ選択 / クラウド同期。
+
 ここまでで「自動デジタイズの品質」を上げてきた。Phase 5 は **ユーザーが手で調整できる**
 編集 UI を整え、Brother PE-Design の Sewing Order や Wilcom のオブジェクトプロパティ Docker
 に相当するワークフローを提供する。

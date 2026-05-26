@@ -7,7 +7,7 @@
 // 純関数: Shape + 数値のみを入力とし、EmbroideryObject / UnderlayConfig には触らない。
 // generateUnderlayStitches 統合は PR12 で行う。
 
-import type { Point2D, Polygon, Shape } from "./types";
+import type { EmbroideryObject, Point2D, Polygon, Shape, Stitch } from "./types";
 import { analyzeShape } from "./geometry";
 import { offsetPolygon } from "./polygon-offset";
 import { intersectScanline } from "./scanline";
@@ -173,6 +173,44 @@ export function zigzagUnderlay(
     ]);
   }
   return out;
+}
+
+/**
+ * `obj.props.underlay.kind` に応じて適切な underlay 関数を dispatch し
+ * `Stitch[]` (kind="run", colorIndex は obj 由来) に変換して返す。
+ *
+ * - `kind === "none"` or `obj.props.underlay` 未定義: 空配列
+ * - `kind === "edge-run"`: `edgeRunUnderlay(obj.shape, insetMm, stitchLenMm).flat()`
+ * - `kind === "center-run"`: `centerRunUnderlay(obj.shape, stitchLenMm)`
+ * - `kind === "zigzag"`: `zigzagUnderlay(obj.shape, spacingMm, insetMm)`
+ * - `kind === "fill"`: `fillUnderlay(obj.shape, angleDeg, spacingMm).flat()`
+ *
+ * jump/trim 挿入は呼び出し側 (`render.ts`) の責務。
+ */
+export function generateUnderlayStitches(obj: EmbroideryObject): Stitch[] {
+  const u = obj.props.underlay;
+  if (!u || u.kind === "none") return [];
+  let points: Point2D[] = [];
+  switch (u.kind) {
+    case "edge-run":
+      points = edgeRunUnderlay(obj.shape, u.insetMm, u.stitchLenMm).flat();
+      break;
+    case "center-run":
+      points = centerRunUnderlay(obj.shape, u.stitchLenMm);
+      break;
+    case "zigzag":
+      points = zigzagUnderlay(obj.shape, u.spacingMm, u.insetMm);
+      break;
+    case "fill":
+      points = fillUnderlay(obj.shape, u.angleDeg, u.spacingMm).flat();
+      break;
+  }
+  return points.map(([x, y]) => ({
+    x,
+    y,
+    kind: "run" as const,
+    colorIndex: obj.colorIndex,
+  }));
 }
 
 // --- private helpers ---

@@ -98,3 +98,12 @@ export type EmbroideryDesign = {
   fabric: FabricProfile;
   objects: EmbroideryObject[];
 };
+
+/**
+ * Phase 3 §4 Branching: 同色で互いに接触する EmbroideryObject 群。
+ * `objectIds` は同 group 内の入力 index 昇順、`colorIndex` は group 共通色。
+ */
+export type BranchGroup = {
+  objectIds: string[];
+  colorIndex: number;
+};
